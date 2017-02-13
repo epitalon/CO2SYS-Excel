@@ -7,7 +7,7 @@ Option Base 1
 
 Private Sub Worksheet_SelectionChange(ByVal Target As Range)
 
-If Target.Column > 4 Or Target.Row = 1 Or (Target.Row > 1 + UBound(kopt) And Target.Column = 1) Or (Target.Row > 1 + UBound(khso4opt) And Target.Column = 2) Or (Target.Row > 1 + UBound(phopt) And Target.Column = 3) Or (Target.Row > 1 + UBound(tbopt) And Target.Column = 4) Then Exit Sub
+If Target.Column > 5 Or Target.Row = 1 Or (Target.Row > 1 + UBound(kopt) And Target.Column = 1) Or (Target.Row > 1 + UBound(khso4opt) And Target.Column = 2) Or (Target.Row > 1 + UBound(phopt) And Target.Column = 3) Or (Target.Row > 1 + UBound(tbopt) And Target.Column = 4) Then Exit Sub
 If Target.Cells.Count > 1 Then mmm = MsgBox("Select 1 Cell Only!", vbOKOnly, "Selection Error!"): Exit Sub
 
 If Target.Column = 1 Then
@@ -45,6 +45,14 @@ ElseIf Target.Column = 4 Then
       .WrapText = True
    End With
    WhichTB% = Target.Row - 1
+ElseIf Target.Column = 5 Then
+   With Sheets("INPUT").Range(Cells(2, 5), Cells(1 + UBound(EOSopt), 5))
+      .Interior.ColorIndex = xlNone
+      .HorizontalAlignment = xlLeft
+      .VerticalAlignment = xlCenter
+      .WrapText = True
+   End With
+   WhichEOS% = Target.Row - 1
 End If
 
 With Target.Interior

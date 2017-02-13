@@ -34,31 +34,33 @@
 '***************** variables ***********
 Option Base 1
 Public Const OutputNum = 10000
-Public mess(1 To 15) As String
+Public mess(1 To 16) As String
 Public K(10), K0  ' these are the equilibrium constants
 Public T(5):  ' these are the amounts of the various species
 Public FugFac
-Dim datar As Range, varinpr As Range
-Public param(5) As Double, VarInp(7) As Double, parami(2) As Integer
+Dim datar As Range, varinpr As Range, locationr As Range
+Public param(5) As Double, VarInp(9) As Double, parami(2) As Integer
 Dim VarTemp(11) As Double, VarTempF(11) As String
 Dim SubFlagT As String, SubFlag(3) As String, SubFlagok As Integer
 Public SheetError As Worksheet
 Public datac(OutputNum, 42)
 Public errorc(OutputNum, 33)
-Public WhichKsDefault%, WhoseKSO4Default%, pHScaleDefault%, WhichTBDefault%
-Public WhichKs%, WhoseKSO4%, pHScale%, WhichTB%
+Public WhichKsDefault%, WhoseKSO4Default%, pHScaleDefault%, WhichTBDefault%, WhichEOSDefault%
+Public WhichKs%, WhoseKSO4%, pHScale%, WhichTB%, WhichEOS%
 'Public TCO2m, fCO2m
-Public phopt(4) As String, kopt(14) As String, khso4opt(2) As String, tbopt(2) As String
+Public phopt(4) As String, kopt(14) As String, khso4opt(2) As String, tbopt(2) As String, EOSopt(2) As String
 Public InitiateOK As Boolean
 
 Public PertK As String         ' Id of perturbed K for computing derivatives
 Public Perturb  As Double      ' perturbation
 
-
+Declare Function gsw_t_from_ct Lib "gsw.dll" (ByVal SA As Double, ByVal CT As Double, ByVal p As Double) As Double
+Declare Function gsw_sp_from_sa Lib "gsw.dll" (ByVal SA As Double, ByVal p As Double, ByVal lon As Double, ByVal lat As Double) As Double
 
 '****************************************************************************
 '****************************************************************************
 Sub main()
+    
   If Not InitiateOK Then
     answer = MsgBox("Macro has not Initialized Properly!" + Chr$(LF) + "Please Close and Re-Open!" + Chr$(LF) + "Your INPUT Data Will Not Be Saved!", vbOKOnly, "Initialization Error!")
     Exit Sub
@@ -96,20 +98,25 @@ Sub main()
    For i = 2 To UBound(tbopt)
       If Sheets("INPUT").Cells(i, 4).Interior.ColorIndex = 36 Then WhichTB% = i - 1
    Next i
+   For i = 2 To UBound(EOSopt)
+      If Sheets("INPUT").Cells(i, 5).Interior.ColorIndex = 36 Then WhichEOS% = i - 1
+   Next i
 
  ' Copy options in sheet DATA
  ' pHScale% = Sheets("INPUT").phcombo.ListIndex + 1
  ' WhichKs% = Sheets("INPUT").kcombo.ListIndex + 1
  ' WhoseKSO4% = Sheets("INPUT").khso4combo.ListIndex + 1
-  ActiveCell.Offset(1, 14).Value = phopt(pHScale%)
-  ActiveCell.Offset(3, 14).Value = kopt(WhichKs%)
-  ActiveCell.Offset(5, 14).Value = khso4opt(WhoseKSO4%)
-  ActiveCell.Offset(7, 14).Value = tbopt(WhichTB%)
+  ActiveCell.Offset(1, 16).Value = phopt(pHScale%)
+  ActiveCell.Offset(3, 16).Value = kopt(WhichKs%)
+  ActiveCell.Offset(5, 16).Value = khso4opt(WhoseKSO4%)
+  ActiveCell.Offset(7, 16).Value = tbopt(WhichTB%)
+  ActiveCell.Offset(9, 16).Value = EOSopt(WhichEOS%)
   
-  startofvar = 0: endofvar = 6: startofdata = 7: endofdata = 11
+  startofvar = 0: endofvar = 6: startofdata = 7: endofdata = 11: startoflocat = 12: endoflocat = 13
   Set varinpr = Range(ActiveCell.Offset(pt, startofvar), ActiveCell.Offset(pt, endofvar))
   Set datar = Range(ActiveCell.Offset(pt, startofdata), ActiveCell.Offset(pt, endofdata))
-  stilldata = WorksheetFunction.CountA(datar) + WorksheetFunction.CountA(varinpr)
+  Set locationr = Range(ActiveCell.Offset(pt, startoflocat), ActiveCell.Offset(pt, endoflocat))
+  stilldata = WorksheetFunction.CountA(datar) + WorksheetFunction.CountA(varinpr) + WorksheetFunction.CountA(locationr)
     
   Erase datac ' Each element set to 0.
   Erase errorc
@@ -140,7 +147,7 @@ Sub main()
             End If
         End If
         
-        ' Check if standard erros are given
+        ' Check if standard errors are given
         Set error_r = SheetError.Range(SheetError.Cells(pt + 3, 1), SheetError.Cells(pt + 3, 9))
         ' If standard errors are given at currennt data line
         If WorksheetFunction.CountA(error_r) <> 0 Then
@@ -165,7 +172,7 @@ Sub main()
        pt = pt + 1: Pt2 = Pt2 + 1
        If (Pt2 > OutputNum) Then
            Application.StatusBar = "Points Calculated: Total " + Str(pt) + "  This Batch " + Str(Pt2) + ".  Formating Data... "
-           Range(ActiveCell.Offset(Pt3 + 1, 16), ActiveCell.Offset(Pt3 + Pt2 - 1, 57)).Value = datac
+           Range(ActiveCell.Offset(Pt3 + 1, 18), ActiveCell.Offset(Pt3 + Pt2 - 1, 59)).Value = datac
            For i = Pt3 + 1 To Pt3 + Pt2 - 1
               If datac(i, 42) <> "" Then
                  ' Setting color by program makes the total number of row impssible to decrease !
@@ -182,10 +189,11 @@ Sub main()
        End If
        Set varinpr = Range(ActiveCell.Offset(pt, startofvar), ActiveCell.Offset(pt, endofvar))
        Set datar = Range(ActiveCell.Offset(pt, startofdata), ActiveCell.Offset(pt, endofdata))
-       stilldata = WorksheetFunction.CountA(datar) + WorksheetFunction.CountA(varinpr)
+       Set locationr = Range(ActiveCell.Offset(pt, startoflocat), ActiveCell.Offset(pt, endoflocat))
+       stilldata = WorksheetFunction.CountA(datar) + WorksheetFunction.CountA(varinpr) + WorksheetFunction.CountA(locationr)
        If (stilldata = 0) Then
            Application.StatusBar = "Points Calculated: Total " + Str(pt) + "  This Batch " + Str(Pt2) + ".  Formating Data... "
-           Range(ActiveCell.Offset(Pt3 + 1, 16), ActiveCell.Offset(Pt3 + Pt2 - 1, 57)).Value = datac
+           Range(ActiveCell.Offset(Pt3 + 1, 18), ActiveCell.Offset(Pt3 + Pt2 - 1, 59)).Value = datac
            For i = Pt3 + 1 To Pt3 + Pt2 - 1
               If datac(i, 42) <> "" Then
                  ' Setting color by program makes the total number of row impssible to decrease !
@@ -242,6 +250,19 @@ Sub ReadDataLine()
            End If
         End If
      Next i
+     If WhichEOS% = 2 Then
+        'append location (long, lat) to VarInp
+        lon = locationr.Value2(1, 1)
+        lat = locationr.Value2(1, 2)
+        If IsEmpty(lon) Or IsEmpty(lat) Then
+           ' Select mid equatorial Atlantic (25 degrees West, 0 degrees North)
+           VarInp(8) = -25
+           VarInp(9) = 0
+        Else
+           VarInp(8) = locationr.Value2(1, 1) 'lon
+           VarInp(9) = locationr.Value2(1, 2) 'lat
+        End If
+     End If
 
     ' Special cases
     If WhichKs% = 8 Or WhichKs% = 6 Then   'GEOSECS and WATER
@@ -291,7 +312,7 @@ End Sub
 
 Sub Calculate(inoutconditions() As Double, data() As Double, SkipAData, results() As Double)
 ' Inputs:
-'  - inoutconditions  :  temp, sal, pressure, In and Out, and total phosphorus and Silicium
+'  - inoutconditions  :  temp, sal, pressure, In and Out, total phosphorus and Silicium and, if TEOS-10, data point location
 '  - data             :  carbonate sytem values
 '  - SkipAData
 '  - global variable parami()
@@ -300,6 +321,25 @@ Sub Calculate(inoutconditions() As Double, data() As Double, SkipAData, results(
 
     Sal = inoutconditions(1): TempC = inoutconditions(2): Pdbar = inoutconditions(3)
     T(4) = inoutconditions(4): T(5) = inoutconditions(5)
+    lon = inoutconditions(8): lat = inoutconditions(9)
+    
+    ' if input temp and salinity are conforming to EOS-10
+    If (WhichEOS% = 2) Then
+        ' Given Sal and TempC are Absolute Salinity and Conservative temperature
+        ' Convert them to Practical Salinity and in-situ temperature
+        Dim SP As Double              ' Practical Salinity
+        Dim isTemp As Double          ' insitu temperature
+        isTemp = gsw_t_from_ct(Sal, TempC, Pdbar)
+        SP = gsw_sp_from_sa(Sal, Pdbar, lon, lat)
+        ' If given data point location is not in ocean
+        If (SP = 9E+15) Then
+            ' Take default: mid equatorial Atlantic
+            SP = gsw_sp_from_sa(Sal, Pdbar, -25, 0)
+        End If
+        TempC = isTemp
+        Sal = SP
+    End If
+    
     Call Constants(pHScale%, WhichKs%, WhoseKSO4%, Sal, TempC, Pdbar, K0, K(), T(), fH, FugFac, VPFac)
      
     ' Added by JM Epitalon
@@ -439,6 +479,13 @@ CalculateOtherStuffAtInputConditions:
 CalculatepHfCO2AtOutputConditions:
     'TempC = TempCout: Pdbar = Pdbarout
     TempC = inoutconditions(6): Pdbar = inoutconditions(7)
+    ' if input temp and salinity are conforming to EOS-10
+    If (WhichEOS% = 2) Then
+        ' Given TempC is Conservative temperature
+        ' Convert it to in-situ temperature
+        TempC = gsw_t_from_ct(Sal, TempC, Pdbar)
+    End If
+    
     Call Constants(pHScale%, WhichKs%, WhoseKSO4%, Sal, TempC, Pdbar, K0, K(), T(), fH, FugFac, VPFac)
         
     ' Added by JM Epitalon
@@ -544,7 +591,7 @@ Sub Derivnum(varid As String, SkipAData, deriv() As Double)
 ' depending on the case.
 '
 
-    Dim input1(7) As Double, input2(7) As Double
+    Dim input1(9) As Double, input2(9) As Double
     Dim param1(5) As Double, param2(5) As Double
     Dim result1(40) As Double, result2(40) As Double
     Dim delta#    ' delta perturbation applied on input variable
@@ -562,7 +609,7 @@ Sub Derivnum(varid As String, SkipAData, deriv() As Double)
        param2(i) = param(i)
     Next i
     ' no change on input and output conditions
-    For i = 1 To 7
+    For i = 1 To 9
        input1(i) = VarInp(i)
        input2(i) = VarInp(i)
     Next i
@@ -1519,100 +1566,125 @@ AboutConstantsp4:
         mess(13) = mess(13) + "     Guide to best practices for ocean CO2 measurements. " + Chr$(LF)
         mess(13) = mess(13) + "     PICES Special Publication 3, 191 pp. " + Chr$(LF)
         mess(13) = mess(13) + "     Dickson, A.G., Sabine, C.L. and Christian, J.R. (Eds.) 2007. "
-'****************************************************************************
-AboutMacroHistory1:
+'***************************************
+AboutErrorPropagation:
         mess(14) = ""
-        mess(14) = mess(14) + "Previous versions (2007): CO2sys_macro_PC.xls   and CO2sys_macro_MAC.xls" + Chr$(LF) + Chr$(LF)
-        mess(14) = mess(14) + "      . Two separate files for PC and MAC versions." + Chr$(LF)
+        mess(14) = mess(14) + "The ""ERROR"" tab does error propagation on the computation of carbonate system variables" + Chr$(LF)
+        mess(14) = mess(14) + "from errors (or uncertainties) on six input" + Chr$(LF)
+        mess(14) = mess(14) + "     - pair of carbonate system variables" + Chr$(LF)
+        mess(14) = mess(14) + "     - nutrients (silicate and phosphate concentrations)" + Chr$(LF)
+        mess(14) = mess(14) + "     - temperature and salinity" + Chr$(LF)
+        mess(14) = mess(14) + "    plus errors on dissociation constants pK0, pK1, pK2, pKb, pKw, pKspa and pKspc" + Chr$(LF)
+        mess(14) = mess(14) + "    plus the correlation coefficient between errors on pair of input carbonate system variables" + Chr$(LF)
         mess(14) = mess(14) + Chr$(LF)
-        mess(14) = mess(14) + "Version 1.0 (10 Octobre 2011): CO2sys_2011.xls" + Chr$(LF) + Chr$(LF)
-        mess(14) = mess(14) + "      . Combined PC and MAC versions of previous macro into one file working on both platforms." + Chr$(LF)
+        mess(14) = mess(14) + "Errors (or uncertainties) on input variables:" + Chr$(LF)
+        mess(14) = mess(14) + "     You have to enter input uncertainties on the left part of the tab for each corresponding line of ""DATA"" tab." + Chr$(LF)
         mess(14) = mess(14) + Chr$(LF)
-        mess(14) = mess(14) + "Version 2.0 (19 July 2012): CO2sys_2011.xls" + Chr$(LF) + Chr$(LF)
-        mess(14) = mess(14) + "      . New R formulation from ""NIST Physical Reference Data (http://physics.nist.gov/cgi-bin/cuu/Value?r)""" + Chr$(LF)
-        mess(14) = mess(14) + "               Difference with old formulation  is not numerically significant." + Chr$(LF)
-        mess(14) = mess(14) + "      . Matched formulation of Uppstrom's Total Boron with Matlab program (same numerical results)." + Chr$(LF)
-        mess(14) = mess(14) + "      . Added option of Total Boron from Lee et al., 2010" + Chr$(LF)
-        mess(14) = mess(14) + "      . Added a few formulations for K1, K2:" + Chr$(LF)
-        mess(14) = mess(14) + "                - Cai and Wang, 1998" + Chr$(LF)
-        mess(14) = mess(14) + "                - Lueker et al., 2000" + Chr$(LF)
-        mess(14) = mess(14) + "                - Mojica Prieto et al., 2002" + Chr$(LF)
-        mess(14) = mess(14) + "                - Millero et al., 2002" + Chr$(LF)
-        mess(14) = mess(14) + "                - Millero et al., 2006" + Chr$(LF)
-        mess(14) = mess(14) + "                - Millero, 2010" + Chr$(LF)
-        mess(14) = mess(14) + "      . Updated the ""INFO"" section" + Chr$(LF)
-        mess(14) = mess(14) + "      . Added the ""Macro Version History"" option in ""INFO"" Sheet." + Chr$(LF)
-        mess(14) = mess(14) + "      . Version number is displayed in cell B2 when the ""About this Macro"" option in ""INFO"" Sheet is selected." + Chr$(LF)
+        mess(14) = mess(14) + "Errors on dissociation constants:" + Chr$(LF)
+        mess(14) = mess(14) + "     You have to enter the uncertainties on seven constants in the column M of ""ERROR"" tab" + Chr$(LF)
+        mess(14) = mess(14) + "     They are applied to all entry lines of ""DATA"" tab." + Chr$(LF)
         mess(14) = mess(14) + Chr$(LF)
-        mess(14) = mess(14) + "Version 2.1 (18 September 2012): CO2sys_v2.1.xls" + Chr$(LF) + Chr$(LF)
-        mess(14) = mess(14) + "      . Corrected an error in the code which affected the results when the constants of 'Millero et. al., 2002'" + Chr$(LF)
-        mess(14) = mess(14) + "                and 'Millero, 2010' were selected." + Chr$(LF)
-        mess(14) = mess(14) + "      . References to  'Cai and Wang, 2008' have been corrected to 'Cai and Wang, 1998'" + Chr$(LF)
-        mess(14) = mess(14) + "      . Incorporated version number in the name of the file and removed it from the 'INFO' sheet (see v.2.0)" + Chr$(LF)
-
+        mess(14) = mess(14) + "Method used:" + Chr$(LF)
+        mess(14) = mess(14) + "     It computes numerical derivatives then applies error propagation using the method of moments." + Chr$(LF)
+        mess(14) = mess(14) + "     The method of moments is a very general technique for estimating the second moment of a variable z" + Chr$(LF)
+        mess(14) = mess(14) + "     (variance or standard deviation) based on a first-order approximation to z." + Chr$(LF)
+        mess(14) = mess(14) + Chr$(LF)
+        mess(14) = mess(14) + " Correlation coefficient:" + Chr$(LF)
+        mess(14) = mess(14) + "     If column 'r' is not empty nor 0, having a value between -1.0 and 1.0, it indicates" + Chr$(LF)
+        mess(14) = mess(14) + "     the correlation between uncertainties of the input pair of carbonate system variables." + Chr$(LF)
+        mess(14) = mess(14) + "     By default, 'r' is zero. However, for some pairs the user may want to specify a" + Chr$(LF)
+        mess(14) = mess(14) + "     different value. For example, measurements of pCO2 and pH are often anti-correlated." + Chr$(LF)
+        mess(14) = mess(14) + "     The same goes for two other pairs: 'CO2 and CO3' and 'pCO2 and" + Chr$(LF)
+        mess(14) = mess(14) + "     CO3'. But even for these cases, care is needed before using non-zero values of 'r'." + Chr$(LF)
+        mess(14) = mess(14) + Chr$(LF)
+        mess(14) = mess(14) + "     When the user wishes to propagate errors for an individual" + Chr$(LF)
+        mess(14) = mess(14) + "     measurement, 'r' should ALWAYS be zero if each member of the input pair is" + Chr$(LF)
+        mess(14) = mess(14) + "     measured independently. In this case, we are interested in the" + Chr$(LF)
+        mess(14) = mess(14) + "     correlation between the uncertainties in those measurements, not in" + Chr$(LF)
+        mess(14) = mess(14) + "     the correlation between the measurments themselves. Uncertainties from" + Chr$(LF)
+        mess(14) = mess(14) + "     those measurements are probably not correlated if they come from" + Chr$(LF)
+        mess(14) = mess(14) + "     different instruments. Conversely, if users are interested in the" + Chr$(LF)
+        mess(14) = mess(14) + "     error in the mean of a distribution of measurements (i.e., if they are" + Chr$(LF)
+        mess(14) = mess(14) + "     propagating standard errors instead of standard deviations), one" + Chr$(LF)
+        mess(14) = mess(14) + "     should then also account for the correlation between the measurements of" + Chr$(LF)
+        mess(14) = mess(14) + "     the two variables of the input pair." + Chr$(LF)
+        mess(14) = mess(14) + Chr$(LF)
+        mess(14) = mess(14) + "     For input pairs where one member is pH ," + Chr$(LF)
+        mess(14) = mess(14) + "     this program automatically inverses the sign of 'r'." + Chr$(LF)
+        mess(14) = mess(14) + "     The reason for that is that the associated derivatives are computed in terms of" + Chr$(LF)
+        mess(14) = mess(14) + "     the hydrogen ion concentration H+, not pH. Therefore for each of these 6" + Chr$(LF)
+        mess(14) = mess(14) + "     flags, if the user wants to compute 'r' that should be done (1) using" + Chr$(LF)
+        mess(14) = mess(14) + "     the H+ concentration instead of pH, and (2) the sign of that computed 'r'" + Chr$(LF)
+        mess(14) = mess(14) + "     should be inversed when passing it as an argument to this routine." + Chr$(LF)
+        mess(14) = mess(14) + "     For these cases, to express perfect anticorrelation with pH, the user should" + Chr$(LF)
+        mess(14) = mess(14) + "     use 'r=1.0'. For all other flags (those without pH as a member), the sign" + Chr$(LF)
+        mess(14) = mess(14) + "     of 'r' should not be inversed." + Chr$(LF)
         mess(14) = mess(14) + Chr$(LF)
 '
 '***************************************
-AboutErrorPropagation:
+AboutTEOS10:
         mess(15) = ""
-        mess(15) = mess(15) + "The ""ERROR"" tab does error propagation on the computation of carbonate system variables" + Chr$(LF)
-        mess(15) = mess(15) + "from errors (or uncertainties) on six input" + Chr$(LF)
-        mess(15) = mess(15) + "     - pair of carbonate system variables" + Chr$(LF)
-        mess(15) = mess(15) + "     - nutrients (silicate and phosphate concentrations)" + Chr$(LF)
-        mess(15) = mess(15) + "     - temperature and salinity" + Chr$(LF)
-        mess(15) = mess(15) + "    plus errors on dissociation constants pK0, pK1, pK2, pKb, pKw, pKspa and pKspc" + Chr$(LF)
-        mess(15) = mess(15) + "    plus the correlation coefficient between errors on pair of input carbonate system variables" + Chr$(LF)
+        mess(15) = mess(15) + "Usually, when doing some experiments, one deals with simple, practical units" + Chr$(LF)
+        mess(15) = mess(15) + "or Temperature and Salinity" + Chr$(LF)
+        mess(15) = mess(15) + "-   In-situ Temperature in degree Celsius" + Chr$(LF)
+        mess(15) = mess(15) + "-   Practical Salinity in  psu (practical salinity units)" + Chr$(LF)
+        mess(15) = mess(15) + "These variables are compliant with EOS-80 standard." + Chr$(LF)
         mess(15) = mess(15) + Chr$(LF)
-        mess(15) = mess(15) + "Errors (or uncertainties) on input variables:" + Chr$(LF)
-        mess(15) = mess(15) + "     You have to enter input uncertainties on the left part of the tab for each corresponding line of ""DATA"" tab." + Chr$(LF)
+        mess(15) = mess(15) + "On some occasions, one may want or need to use temperature and salinity units" + Chr$(LF)
+        mess(15) = mess(15) + "as recommended in TEOS-10 (http://www.teos-10.org/), that is:" + Chr$(LF)
+        mess(15) = mess(15) + "-   Conservative temperature in degree C" + Chr$(LF)
+        mess(15) = mess(15) + "-   Absolute salinity in g/kg" + Chr$(LF)
         mess(15) = mess(15) + Chr$(LF)
-        mess(15) = mess(15) + "Errors on dissociation constants:" + Chr$(LF)
-        mess(15) = mess(15) + "     You have to enter the uncertainties on seven constants in the column M of ""ERROR"" tab" + Chr$(LF)
-        mess(15) = mess(15) + "     They are applied to all entry lines of ""DATA"" tab." + Chr$(LF)
+        mess(15) = mess(15) + "If so, select [TEOS-10] in fourth column of sheet ""INPUT""" + Chr$(LF)
         mess(15) = mess(15) + Chr$(LF)
-        mess(15) = mess(15) + "Method used:" + Chr$(LF)
-        mess(15) = mess(15) + "     It computes numerical derivatives then applies error propagation using the method of moments." + Chr$(LF)
-        mess(15) = mess(15) + "     The method of moments is a very general technique for estimating the second moment of a variable z" + Chr$(LF)
-        mess(15) = mess(15) + "     (variance or standard deviation) based on a first-order approximation to z." + Chr$(LF)
-        mess(15) = mess(15) + Chr$(LF)
-        mess(15) = mess(15) + " Correlation coefficient:" + Chr$(LF)
-        mess(15) = mess(15) + "     If column 'r' is not empty nor 0, having a value between -1.0 and 1.0, it indicates" + Chr$(LF)
-        mess(15) = mess(15) + "     the correlation between uncertainties of the input pair of carbonate system variables." + Chr$(LF)
-        mess(15) = mess(15) + "     By default, 'r' is zero. However, for some pairs the user may want to specify a" + Chr$(LF)
-        mess(15) = mess(15) + "     different value. For example, measurements of pCO2 and pH are often anti-correlated." + Chr$(LF)
-        mess(15) = mess(15) + "     The same goes for two other pairs: 'CO2 and CO3' and 'pCO2 and" + Chr$(LF)
-        mess(15) = mess(15) + "     CO3'. But even for these cases, care is needed before using non-zero values of 'r'." + Chr$(LF)
-        mess(15) = mess(15) + Chr$(LF)
-        mess(15) = mess(15) + "     When the user wishes to propagate errors for an individual" + Chr$(LF)
-        mess(15) = mess(15) + "     measurement, 'r' should ALWAYS be zero if each member of the input pair is" + Chr$(LF)
-        mess(15) = mess(15) + "     measured independently. In this case, we are interested in the" + Chr$(LF)
-        mess(15) = mess(15) + "     correlation between the uncertainties in those measurements, not in" + Chr$(LF)
-        mess(15) = mess(15) + "     the correlation between the measurments themselves. Uncertainties from" + Chr$(LF)
-        mess(15) = mess(15) + "     those measurements are probably not correlated if they come from" + Chr$(LF)
-        mess(15) = mess(15) + "     different instruments. Conversely, if users are interested in the" + Chr$(LF)
-        mess(15) = mess(15) + "     error in the mean of a distribution of measurements (i.e., if they are" + Chr$(LF)
-        mess(15) = mess(15) + "     propagating standard errors instead of standard deviations), one" + Chr$(LF)
-        mess(15) = mess(15) + "     should then also account for the correlation between the measurements of" + Chr$(LF)
-        mess(15) = mess(15) + "     the two variables of the input pair." + Chr$(LF)
-        mess(15) = mess(15) + Chr$(LF)
-        mess(15) = mess(15) + "     For input pairs where one member is pH ," + Chr$(LF)
-        mess(15) = mess(15) + "     this program automatically inverses the sign of 'r'." + Chr$(LF)
-        mess(15) = mess(15) + "     The reason for that is that the associated derivatives are computed in terms of" + Chr$(LF)
-        mess(15) = mess(15) + "     the hydrogen ion concentration H+, not pH. Therefore for each of these 6" + Chr$(LF)
-        mess(15) = mess(15) + "     flags, if the user wants to compute 'r' that should be done (1) using" + Chr$(LF)
-        mess(15) = mess(15) + "     the H+ concentration instead of pH, and (2) the sign of that computed 'r'" + Chr$(LF)
-        mess(15) = mess(15) + "     should be inversed when passing it as an argument to this routine." + Chr$(LF)
-        mess(15) = mess(15) + "     For these cases, to express perfect anticorrelation with pH, the user should" + Chr$(LF)
-        mess(15) = mess(15) + "     use 'r=1.0'. For all other flags (those without pH as a member), the sign" + Chr$(LF)
-        mess(15) = mess(15) + "     of 'r' should not be inversed." + Chr$(LF)
-        mess(15) = mess(15) + Chr$(LF)
+'****************************************************************************
+AboutMacroHistory1:
+        mess(16) = ""
+        mess(16) = mess(16) + "Previous versions (2007): CO2sys_macro_PC.xls   and CO2sys_macro_MAC.xls" + Chr$(LF) + Chr$(LF)
+        mess(16) = mess(16) + "      . Two separate files for PC and MAC versions." + Chr$(LF)
+        mess(16) = mess(16) + Chr$(LF)
+        mess(16) = mess(16) + "Version 1.0 (10 Octobre 2011): CO2sys_2011.xls" + Chr$(LF) + Chr$(LF)
+        mess(16) = mess(16) + "      . Combined PC and MAC versions of previous macro into one file working on both platforms." + Chr$(LF)
+        mess(16) = mess(16) + Chr$(LF)
+        mess(16) = mess(16) + "Version 2.0 (19 July 2012): CO2sys_2011.xls" + Chr$(LF) + Chr$(LF)
+        mess(16) = mess(16) + "      . New R formulation from ""NIST Physical Reference Data (http://physics.nist.gov/cgi-bin/cuu/Value?r)""" + Chr$(LF)
+        mess(16) = mess(16) + "               Difference with old formulation  is not numerically significant." + Chr$(LF)
+        mess(16) = mess(16) + "      . Matched formulation of Uppstrom's Total Boron with Matlab program (same numerical results)." + Chr$(LF)
+        mess(16) = mess(16) + "      . Added option of Total Boron from Lee et al., 2010" + Chr$(LF)
+        mess(16) = mess(16) + "      . Added a few formulations for K1, K2:" + Chr$(LF)
+        mess(16) = mess(16) + "                - Cai and Wang, 1998" + Chr$(LF)
+        mess(16) = mess(16) + "                - Lueker et al., 2000" + Chr$(LF)
+        mess(16) = mess(16) + "                - Mojica Prieto et al., 2002" + Chr$(LF)
+        mess(16) = mess(16) + "                - Millero et al., 2002" + Chr$(LF)
+        mess(16) = mess(16) + "                - Millero et al., 2006" + Chr$(LF)
+        mess(16) = mess(16) + "                - Millero, 2010" + Chr$(LF)
+        mess(16) = mess(16) + "      . Updated the ""INFO"" section" + Chr$(LF)
+        mess(16) = mess(16) + "      . Added the ""Macro Version History"" option in ""INFO"" Sheet." + Chr$(LF)
+        mess(16) = mess(16) + "      . Version number is displayed in cell B2 when the ""About this Macro"" option in ""INFO"" Sheet is selected." + Chr$(LF)
+        mess(16) = mess(16) + Chr$(LF)
+        mess(16) = mess(16) + "Version 2.1 (18 September 2012): CO2sys_v2.1.xls" + Chr$(LF) + Chr$(LF)
+        mess(16) = mess(16) + "      . Corrected an error in the code which affected the results when the constants of 'Millero et. al., 2002'" + Chr$(LF)
+        mess(16) = mess(16) + "                and 'Millero, 2010' were selected." + Chr$(LF)
+        mess(16) = mess(16) + "      . References to  'Cai and Wang, 2008' have been corrected to 'Cai and Wang, 1998'" + Chr$(LF)
+        mess(16) = mess(16) + "      . Incorporated version number in the name of the file and removed it from the 'INFO' sheet (see v.2.0)" + Chr$(LF)
+        mess(16) = mess(16) + Chr$(LF)
+        mess(16) = mess(16) + "Version 2.2 (9 June 2016): CO2sys_v2.2.xls" + Chr$(LF) + Chr$(LF)
+        mess(16) = mess(16) + "      . Added error propagation in a new sheet titled ""ERROR""" + Chr$(LF)
+        mess(16) = mess(16) + Chr$(LF)
+        mess(16) = mess(16) + "Version 2.3 (25 January 2017): CO2sys_v2.3.xls" + Chr$(LF) + Chr$(LF)
+        mess(16) = mess(16) + "      . Added an option for TEOS-10" + Chr$(LF)
+        mess(16) = mess(16) + Chr$(LF)
 '
+
 '****************************************************************************
 
 End Sub
 
 Sub Initiate()
    
+' In order to open gsw.dll which is in the same folder as this workbook
+Application.DefaultFilePath = CStr(Application.ActiveWorkbook.Path)
+
 PertK = 0    ' Id of perturbed K for computing derivatives
 
 '********************** DEFAULT**************************
@@ -1620,6 +1692,8 @@ WhichKsDefault% = 10             ' D&M refit
 WhoseKSO4Default% = 1 ' Dickson's KSO4
 pHScaleDefault% = 1   ' Total pH scale
 WhichTBDefault% = 1             ' Uppstrom
+WhichEOSDefault% = 1            ' EOS-80
+
 'BatchDefault% = 1        ' single-input mode
 'TA = 0.0023:            ' mol/kg-SW
 'TC = 0.0021:            ' mol/kg-SW
@@ -1659,11 +1733,11 @@ khso4opt(2) = "Khoo et al "
         kopt(7) = " Constants from Peng et al. (NBS scale); K1, K2 from Mehrbach et al. "  '2s PRECISION about 1.2% in K1 and 2.0% in K2. "
         kopt(8) = " Salinity = 0 (freshwater); K1, K2 from Millero, 1979 "   '2s PRECISION about 0.5% in K1 and 0.7% in K2. "
         kopt(9) = " K1, K2 from Cai and Wang, 1998"
-        kopt(10) = " K1, K2 from Lueker et al., 2000"
-        kopt(11) = " K1, K2 from Mojica Prieto et al., 2002"
-        kopt(12) = " K1, K2 from Millero et al., 2002"
-        kopt(13) = " K1, K2 from Millero et al., 2006"
-        kopt(14) = " K1, K2 from Millero, 2010"
+        kopt(10) = " K1, K2 from Lueker et al., 2000"
+        kopt(11) = " K1, K2 from Mojica Prieto et al., 2002"
+        kopt(12) = " K1, K2 from Millero et al., 2002"
+        kopt(13) = " K1, K2 from Millero et al., 2006"
+        kopt(14) = " K1, K2 from Millero, 2010"
        ' For 6) or 7), the pH scale is set to NBS. This can be changed later.
        'In each case the constants are converted to the chosen pH scale.
 '********************** END OF SET CONSTANTS **************************
@@ -1671,6 +1745,11 @@ khso4opt(2) = "Khoo et al "
 tbopt(1) = "Uppstrom, 1974 "
 tbopt(2) = "Lee et al., 2010 "
 '********************** END TB  **************************
+'********************** Equation Of State of SeaWater *********************
+EOSopt(1) = "EOS-80 "
+EOSopt(2) = "TEOS-10 "
+'********************** END Equation Of State **************************
+
 Set SheetError = Sheets("ERROR")
 Sheets("INPUT").Select
 'Range("A1").Select
@@ -1703,6 +1782,12 @@ With Sheets("INPUT").Range(Cells(2, 4).Address, Cells(1 + UBound(tbopt), 3).Addr
    .VerticalAlignment = xlCenter
    .WrapText = True
 End With
+With Sheets("INPUT").Range(Cells(2, 5).Address, Cells(1 + UBound(EOSopt), 3).Address)
+   .Interior.ColorIndex = xlNone
+   .HorizontalAlignment = xlLeft
+   .VerticalAlignment = xlCenter
+   .WrapText = True
+End With
 With Sheets("INPUT").Cells(1 + WhichKsDefault%, 1).Interior
         .ColorIndex = 36
         .Pattern = xlSolid
@@ -1723,6 +1808,11 @@ With Sheets("INPUT").Cells(1 + WhichTBDefault%, 4).Interior
         .Pattern = xlSolid
         .PatternColorIndex = xlAutomatic
 End With
+With Sheets("INPUT").Cells(1 + WhichEOSDefault%, 5).Interior
+        .ColorIndex = 36
+        .Pattern = xlSolid
+        .PatternColorIndex = xlAutomatic
+End With
  
 '********************** END OF KHSO4**************************
 'Sheets("INPUT").phcombo.List = phopt
@@ -1734,13 +1824,16 @@ End With
 'Sheets("INPUT").khso4combo.ListIndex = (WhoseKSO4Default% - 1)
 
 '**************** INITIATES INFO SHEET ***********************
- Dim ms(14) As String
+ Dim ms(16) As String
  ms(1) = "About this Macro"
  ms(2) = "General Information ": ms(3) = "pH Scales": ms(4) = "fCO2, pCO2"
  ms(5) = "KSO4": ms(6) = "Freshwater Option"
  ms(7) = "GEOSECS Option ": ms(8) = "Peng Option ":  ms(9) = "Pressure Effects"
  ms(10) = "Calcium Carbonate Solubility (Omega Values) "
- ms(11) = "Alkalinity": ms(12) = "Revelle Factor": ms(13) = "Constants": ms(14) = "Macro Version History"
+ ms(11) = "Alkalinity": ms(12) = "Revelle Factor": ms(13) = "Constants"
+ ms(14) = "Error propagation"
+ ms(15) = "TEOS-10 vs EOS-80"
+ ms(16) = "Macro Version History"
 
 Sheets("INFO").Select
 'Sheets("INFO").Range("A1").Select
@@ -4135,6 +4228,7 @@ GetfCO2:
         Call CalculatefCO2fromTCpH(TC, pH, K0, K1, K2, fCO2)
 Return
 End Sub
+
 
 
 
