@@ -21,9 +21,19 @@ ElseIf Target.Address = "$M$3" Then
    If answer = vbYes Then r1.ClearContents
 Else
    answer = MsgBox("Are you sure you want to clear the results ?", vbYesNo + vbQuestion + vbDefaultButton2, "Caution")
-   Set r1 = Range(Cells(4, "Q"), Cells(65356, "BB"))
-   If answer = vbYes Then r1.ClearContents
+   nrows = Sheets("DATA").UsedRange.Rows.Count
+   Set r1 = Range(Cells(4, "Q"), Cells(nrows, "BF"))
+   nrows = Sheets("ERROR").UsedRange.Rows.Count
+   Set r2 = Sheets("ERROR").Range(Sheets("ERROR").Cells(4, "N"), Sheets("ERROR").Cells(nrows, "AM"))
+   If answer = vbYes Then
+      r1.ClearContents
+      ' Setting/clearing format by program makes the total number of row impssible to decrease !
+      ' r1.ClearFormats
+      r2.ClearContents
+   End If
 End If
 
 
 End Sub
+
+
