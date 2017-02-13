@@ -117,7 +117,7 @@ Sub main()
     
   ' Read chosen error for dissociation constants
   ' user may leave them empty, in which case, they will be set to zero
-  Dim epK(7) As Double
+  Dim epK(8) As Double
   Call ReadError_pK(epK())
   
   Do While (stilldata <> 0) 'loop for each point
@@ -207,11 +207,11 @@ End Sub
 Sub ReadError_pK(epK() As Double)
 ' Inputs: global variables datar, varinpr
 ' Outputs: epK(7)
-' This reads chosen errors for constants pK on column "L" of sheet ERROR
+' This reads chosen errors for constants pK and TB on column "L" of sheet ERROR
   
   ' Read chosen error for constants pK
   Set currentCell = Worksheets("ERROR").Range("M5")
-  For i = 1 To 7
+  For i = 1 To 8
       epK(i) = currentCell.Value
       Set currentCell = currentCell.Offset(1, 0)
   Next i
@@ -317,6 +317,8 @@ Sub Calculate(inoutconditions() As Double, data() As Double, SkipAData, results(
                  K(4) = K(4) + Perturb   ' K(4) = KB
              Case "KW"
                  K(3) = K(3) + Perturb   ' K(3) = KW
+             Case "BOR"
+                 T(1) = T(1) + Perturb   ' Total boron
          End Select
     End If
     K1 = K(1): K2 = K(2)
@@ -454,6 +456,8 @@ CalculatepHfCO2AtOutputConditions:
                 K(4) = K(4) + Perturb   ' K(4) = KB
             Case "KW"
                 K(3) = K(3) + Perturb   ' K(3) = KW
+            Case "BOR"
+                T(1) = T(1) + Perturb   ' T[1) = TB
         End Select
     End If
     K1 = K(1): K2 = K(2)
@@ -520,7 +524,7 @@ Sub Derivnum(varid As String, SkipAData, deriv() As Double)
 '                     case 'phos'  : Phosphate concentration
 '                     case 't'     : temperature
 '                     case 's'     : salinity
-'                     case 'K0','K1','K2','Kb','Kw','Kspa' or 'Kspc' : dissociation constaht
+'                     case 'K0','K1','K2','Kb','Kw','Kspa','Kspc', or 'bor' : dissociation constaht
 '   - SkipAData      :  whether to compute errors on extraneous carbonate system variables
 '   - global variables  param(), parami(), VarInp()
 '
@@ -564,12 +568,12 @@ Sub Derivnum(varid As String, SkipAData, deriv() As Double)
     Next i
 
     Select Case varid
-    Case "K0", "K1", "K2", "KB", "KW", "KSPA", "KSPC"
+    Case "K0", "K1", "K2", "KB", "KW", "KSPA", "KSPC", "BOR"
         flag_dissoc_K = True
         ' Approximate values for K0, K1, K2, Kb, Kspa and Kspc
         ' They will be used to compute an absolute perturbation value on these constants
         Dim K_values As Variant
-        K_values = Array(0.034, 0.0000012, 0.00000000083, 0.0000000021, 0.000000000000061, 0.00000067, 0.00000043)
+        K_values = Array(0.034, 0.0000012, 0.00000000083, 0.0000000021, 0.000000000000061, 0.00000067, 0.00000043, 0.0004157)
         Select Case varid
             Case "K0"
                 Index% = 1
@@ -585,6 +589,8 @@ Sub Derivnum(varid As String, SkipAData, deriv() As Double)
                 Index% = 6
             Case "KSPC"
                 Index% = 7
+            Case "BOR"
+                Index% = 8
         End Select
         ' Choose value of absolute perturbation
         perturbation# = K_values(Index%) * 0.001    ' 0.1 percent of Kx value
@@ -714,10 +720,10 @@ Sub CalculateErrors(SkipAData, eVar1 As Double, eVar2 As Double, eSal As Double,
 '   - eVar1, evar2   :  standard error (or uncertainty) on input pair of carbonate system variables
 '   - eSal, eTemp    :  standard error (or uncertainty) on Salinity and Temperature
 '   - ePhos, eSil    :  standard error (or uncertainty) on Phosphate and Silicate total concentrations
-'   - epK            :  standard error (or uncertainty) on all seven dissociation constants (a vector)
+'   - epK            :  standard error (or uncertainty) on all 7 dissociation constants + TB(a vector)
 '   - global variables  param(), parami(), VarInp()
 '
-'   * epK must be vector of seven values : errors of pK0, pK1, pK2, pKb, pKw, pKspa and pKspc
+'   * epK must be vector of 8 values : errors of pK0, pK1, pK2, pKb, pKw, pKspa, pKspc, and TB
 '
 ' Outputs :
 '   - errors(40)     :  standard error on computed carbonate system variables (at input and output conditions)
@@ -728,7 +734,7 @@ Sub CalculateErrors(SkipAData, eVar1 As Double, eVar2 As Double, eSal As Double,
 '  - pair of carbonate system variables
 '  - nutrients (silicate and phosphate concentrations)
 '  - temperature and salinity
-' plus errors on dissociation constants pK0, pK1, pK2, pKb, pKw, pKspa and pKspc
+' plus errors on dissociation constants pK0, pK1, pK2, pKb, pKw, pKspa, pKspc, and total boron (TB)
 ' plus the correlation coefficient between errors on pair of input carbonate system variables
 '
 ' It computes numerical derivatives then applies error propagation using the method of moments.
@@ -773,7 +779,7 @@ Sub CalculateErrors(SkipAData, eVar1 As Double, eVar2 As Double, eSal As Double,
     
     ' names of dissociation constants
     Dim K_names() As String
-    K_names = Split("K0,K1,K2,KB,KW,KSPA,KSPC", ",")
+    K_names = Split("K0,K1,K2,KB,KW,KSPA,KSPC,BOR", ",")
 
     ' Convert error on pH to error on [H+] concentration
     ' in case where first input variable is pH
@@ -787,7 +793,7 @@ Sub CalculateErrors(SkipAData, eVar1 As Double, eVar2 As Double, eSal As Double,
         '     = -(1/ln[10]) * d (ln[H])
         '     = -(1/ln[10]) * (dH / H)
         ' Thus dH = - ln[1O] * [H] dpH
-        eH# = -Log(10) * (H# * epH#)
+        eH# = Log(10) * (H# * epH#)    ' Removed minus sign as we want eH positive
         eVar1 = eH#
         r = -r    'Inverse sign of 'r' if param(1) is pH
     End If
@@ -803,7 +809,7 @@ Sub CalculateErrors(SkipAData, eVar1 As Double, eVar2 As Double, eSal As Double,
         '     = -(1/ln[10]) * d (ln[H])
         '     = -(1/ln[10]) * (dH / H)
         ' Thus dH = - ln[1O] * [H] dpH
-        eH# = -Log(10) * (H# * epH#)
+        eH# = Log(10) * (H# * epH#)    ' Removed minus sign as we want eH positive
         eVar2 = eH#
         r = -r    'Inverse sign of 'r' if param(2) is pH
     End If
@@ -903,7 +909,7 @@ Sub CalculateErrors(SkipAData, eVar1 As Double, eVar2 As Double, eSal As Double,
     Call SolubilityProduct(WhichKs%, Sal, TempC, Pdbar, KCa, KAr)
     
     ' Contribution of all pK to squared standard error
-    For indx_K = 1 To 7
+    For indx_K = 1 To 8
         ' if error on K is given
         If epK(indx_K) <> 0# Then
             ' Select K
@@ -923,6 +929,8 @@ Sub CalculateErrors(SkipAData, eVar1 As Double, eVar2 As Double, eSal As Double,
                   Kx = CDbl(KAr)
                 Case 7
                   Kx = CDbl(KCa)
+                Case 8
+                  Kx = CDbl(T(1) / Log(10)) 'TB
             End Select
 
             ' compute error on K from that on pK
@@ -1608,9 +1616,9 @@ Sub Initiate()
 PertK = 0    ' Id of perturbed K for computing derivatives
 
 '********************** DEFAULT**************************
-WhichKsDefault% = 4             ' D&M refit
+WhichKsDefault% = 10             ' D&M refit
 WhoseKSO4Default% = 1 ' Dickson's KSO4
-pHScaleDefault% = 2   ' Total pH scale
+pHScaleDefault% = 1   ' Total pH scale
 WhichTBDefault% = 1             ' Uppstrom
 'BatchDefault% = 1        ' single-input mode
 'TA = 0.0023:            ' mol/kg-SW
@@ -4127,5 +4135,7 @@ GetfCO2:
         Call CalculatefCO2fromTCpH(TC, pH, K0, K1, K2, fCO2)
 Return
 End Sub
+
+
 
 
