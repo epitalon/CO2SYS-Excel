@@ -18,7 +18,7 @@ End Sub
 Private Sub Workbook_Open()
         
         InitiateOK = False
-        Call Initiate
+        Call Initiate(True)
         Sheets("INPUT").Activate
 End Sub
 

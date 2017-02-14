@@ -11,7 +11,7 @@
 ' !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 ' PROGRAMMER'S NOTE: all logs are base e, any log10 is written log()/log(10)
 ' PROGRAMMER'S NOTE: all temps are deg C unless otherwise noted -
-'       temps in deg K only occur in the subs and are expicitly noted
+'        temps in deg K only occur in the subs and are expicitly noted
 ' PROGRAMMER'S NOTE: partials are calculated numerically and there will be
 '       some roundoff error involved in this, but it should be small
 ' PROGRAMMER'S NOTE: pCO2 and fCO2 are both referenced to wet air. In an
@@ -34,6 +34,9 @@
 '***************** variables ***********
 Option Base 1
 Public Const OutputNum = 10000
+Public Const numvar = 7 ' all input variables (S,Tin,Pin,Phos, Si, Tout, Pout)
+Public Const numaux = numvar ' all aux output (HCO3 to last Alk)
+Public LF   'Linefeed
 Public mess(1 To 16) As String
 Public K(10), K0  ' these are the equilibrium constants
 Public T(5):  ' these are the amounts of the various species
@@ -43,12 +46,14 @@ Public param(5) As Double, VarInp(9) As Double, parami(2) As Integer
 Dim VarTemp(11) As Double, VarTempF(11) As String
 Dim SubFlagT As String, SubFlag(3) As String, SubFlagok As Integer
 Public SheetError As Worksheet
+'Public datac(OutputNum, 2 * (numvar + numaux) - 2 + 3 * (5 + 4 + 1) + 2)
+'Public datacf(OutputNum, 2 * (numvar + numaux) - 2 + 3 * (5 + 4 + 1) + 2)
 Public datac(OutputNum, 42)
+Public datacf(OutputNum, 42)
 Public errorc(OutputNum, 33)
-Public WhichKsDefault%, WhoseKSO4Default%, pHScaleDefault%, WhichTBDefault%, WhichEOSDefault%
-Public WhichKs%, WhoseKSO4%, pHScale%, WhichTB%, WhichEOS%
-'Public TCO2m, fCO2m
-Public phopt(4) As String, kopt(14) As String, khso4opt(2) As String, tbopt(2) As String, EOSopt(2) As String
+Public WhichKsDefault%, WhoseKSO4Default%, WhoseKFDefault%, pHScaleDefault%, WhichTBDefault%, WhichEOSDefault%
+Public WhichKs%, WhoseKSO4%, WhoseKF%, pHScale%, WhichTB%, WhichEOS%
+Public phopt(4) As String, kopt(14) As String, khso4opt(2) As String, kfopt(2) As String, tbopt(2) As String, EOSopt(2) As String
 Public InitiateOK As Boolean
 
 Public PertK As String         ' Id of perturbed K for computing derivatives
@@ -60,10 +65,17 @@ Declare Function gsw_sp_from_sa Lib "gsw.dll" (ByVal SA As Double, ByVal p As Do
 '****************************************************************************
 '****************************************************************************
 Sub main()
-    
+  
+  If InStr(1, Application.OperatingSystem, "macintosh", vbTextCompare) > 0 Then
+    LF = 13
+  Else
+    LF = 10
+  End If
+
   If Not InitiateOK Then
-    answer = MsgBox("Macro has not Initialized Properly!" + Chr$(LF) + "Please Close and Re-Open!" + Chr$(LF) + "Your INPUT Data Will Not Be Saved!", vbOKOnly, "Initialization Error!")
-    Exit Sub
+    Call Initiate(False)
+    'answer = MsgBox("Macro has not Initialized Properly!" + Chr$(LF) + "Please Close and Re-Open!" + Chr$(LF) + "Your INPUT Data Will Not Be Saved!", vbOKOnly, "Initialization Error!")
+    'Exit Sub
   End If
   
   Sheets("DATA").Activate
@@ -76,52 +88,55 @@ Sub main()
   answer = MsgBox("Is Your Data Properly Entered on the Worksheet?", vbDefaultButton1 + vbYesNo + vbExclamation, "Check Point")
   If answer = vbNo Then Exit Sub
   
-  SkipAData = MsgBox("Calculate ""Auxiliary Data""?", vbDefaultButton2 + vbYesNo + vbExclamation, "Check Point")
+  'SkipAData = MsgBox("Calculate ""Auxiliary Data""?", vbDefaultButton2 + vbYesNo + vbExclamation, "Check Point")
+  SkipAData = vbYes
   If SkipAData = vbYes Then
      SkipAData = vbNo
   ElseIf SkipAData = vbNo Then
      SkipAData = vbYes
   End If
   
- ' g3init = Range("$G$3").Value
- ' f3init = Range("$F$3").Value
+  settingc = 9 + numvar
+  If pt = 1 Then
+       For i = 2 To UBound(kopt) + 1
+          If Sheets("INPUT").Cells(i, 1).Interior.ColorIndex = 36 Then WhichKs% = i - 1
+       Next i
+       For i = 2 To UBound(khso4opt) + 1
+          If Sheets("INPUT").Cells(i, 2).Interior.ColorIndex = 36 Then WhoseKSO4% = i - 1
+       Next i
+       For i = 2 To UBound(kfopt) + 1
+          If Sheets("INPUT").Cells(i, 3).Interior.ColorIndex = 36 Then WhoseKF% = i - 1
+       Next i
+       For i = 2 To UBound(phopt) + 1
+          If Sheets("INPUT").Cells(i, 4).Interior.ColorIndex = 36 Then pHScale% = i - 1
+       Next i
+       For i = 2 To UBound(tbopt) + 1
+          If Sheets("INPUT").Cells(i, 5).Interior.ColorIndex = 36 Then WhichTB% = i - 1
+       Next i
+       For i = 2 To UBound(EOSopt) + 1
+          If Sheets("INPUT").Cells(i, 5).Interior.ColorIndex = 36 Then WhichEOS% = i - 1
+       Next i
+    
+     ' Copy options in sheet DATA
+      ActiveCell.Offset(1, settingc).Value = phopt(pHScale%)
+      ActiveCell.Offset(3, settingc).Value = kopt(WhichKs%)
+      ActiveCell.Offset(5, settingc).Value = khso4opt(WhoseKSO4%)
+      ActiveCell.Offset(7, settingc).Value = kfopt(WhoseKF%)
+      ActiveCell.Offset(9, settingc).Value = tbopt(WhichTB%)
+      ActiveCell.Offset(11, settingc).Value = EOSopt(WhichEOS%)
+  End If
   
-   For i = 2 To UBound(kopt)
-      If Sheets("INPUT").Cells(i, 1).Interior.ColorIndex = 36 Then WhichKs% = i - 1
-   Next i
-   For i = 2 To UBound(khso4opt)
-      If Sheets("INPUT").Cells(i, 2).Interior.ColorIndex = 36 Then WhoseKSO4% = i - 1
-   Next i
-   For i = 2 To UBound(phopt)
-      If Sheets("INPUT").Cells(i, 3).Interior.ColorIndex = 36 Then pHScale% = i - 1
-   Next i
-   For i = 2 To UBound(tbopt)
-      If Sheets("INPUT").Cells(i, 4).Interior.ColorIndex = 36 Then WhichTB% = i - 1
-   Next i
-   For i = 2 To UBound(EOSopt)
-      If Sheets("INPUT").Cells(i, 5).Interior.ColorIndex = 36 Then WhichEOS% = i - 1
-   Next i
-
- ' Copy options in sheet DATA
- ' pHScale% = Sheets("INPUT").phcombo.ListIndex + 1
- ' WhichKs% = Sheets("INPUT").kcombo.ListIndex + 1
- ' WhoseKSO4% = Sheets("INPUT").khso4combo.ListIndex + 1
-  ActiveCell.Offset(1, 16).Value = phopt(pHScale%)
-  ActiveCell.Offset(3, 16).Value = kopt(WhichKs%)
-  ActiveCell.Offset(5, 16).Value = khso4opt(WhoseKSO4%)
-  ActiveCell.Offset(7, 16).Value = tbopt(WhichTB%)
-  ActiveCell.Offset(9, 16).Value = EOSopt(WhichEOS%)
-  
-  startofvar = 0: endofvar = 6: startofdata = 7: endofdata = 11: startoflocat = 12: endoflocat = 13
+  startofvar = 0: endofvar = numvar - 1: startofdata = numvar: endofdata = numvar + 4
+  startoflocat = numvar + 5: endoflocat = numvar + 6
   Set varinpr = Range(ActiveCell.Offset(pt, startofvar), ActiveCell.Offset(pt, endofvar))
   Set datar = Range(ActiveCell.Offset(pt, startofdata), ActiveCell.Offset(pt, endofdata))
   Set locationr = Range(ActiveCell.Offset(pt, startoflocat), ActiveCell.Offset(pt, endoflocat))
   stilldata = WorksheetFunction.CountA(datar) + WorksheetFunction.CountA(varinpr) + WorksheetFunction.CountA(locationr)
-    
+
   Erase datac ' Each element set to 0.
   Erase errorc
   SubFlag(1) = "Pressure Set to 0. ": SubFlag(2) = "Phosp Set to 0. ": SubFlag(3) = "Si Set to 0. "
-    
+
   ' Read chosen error for dissociation constants
   ' user may leave them empty, in which case, they will be set to zero
   Dim epK(8) As Double
@@ -129,50 +144,56 @@ Sub main()
   
   Do While (stilldata <> 0) 'loop for each point
         Dim results(40) As Double
+        Dim formats(40) As String
         Dim errors(42) As Double
         
-        ' Read one line of data
-        Call ReadDataLine
-        'if S and T <> 0
-        If VarInp(1) <> 0 And VarInp(2) <> 0 Then
-            ' Process data
-            Call Calculate(VarInp(), param(), SkipAData, results())
-            ' Store results
-            For i = 1 To 40
-               datac(Pt2, i) = results(i)
-            Next i
-            ' Mention if some input set to 0
-            If SubFlagok = 1 Then
-               datac(Pt2, 42) = SubFlagT
+        If WorksheetFunction.CountA(datar) <> 0 Then
+            ' Read one line of data
+            Call ReadDataLine
+            'if S and T and two parameters are defined
+            If VarInp(1) <> -999 And VarInp(2) <> 999 And parami(1) <> -999 And parami(2) <> -999 Then
+                ' Process data
+                Call Calculate(VarInp(), param(), SkipAData, results(), formats())
+                ' Store results
+                For i = 1 To 40
+                   datac(Pt2, i) = results(i)
+                   datacf(Pt2, i) = formats(i)
+                Next i
+                ' Mention if some input set to 0
+                If SubFlagok = 1 Then
+                   datac(Pt2, 42) = SubFlagT
+                End If
             End If
-        End If
-        
-        ' Check if standard errors are given
-        Set error_r = SheetError.Range(SheetError.Cells(pt + 3, 1), SheetError.Cells(pt + 3, 9))
-        ' If standard errors are given at currennt data line
-        If WorksheetFunction.CountA(error_r) <> 0 Then
-            ' Read given standard errors
-            Dim eVar1 As Double, eVar2 As Double, eSal As Double, eTemp As Double, eSil As Double, ePhos As Double, r As Double
-            Call ReaderrorLine(pt, eVar1, eVar2, eSal, eTemp, eSil, ePhos, r)
-            ' Process standard errors
-            Call CalculateErrors(SkipAData, eVar1, eVar2, eSal, eTemp, eSil, ePhos, r, epK(), errors())
-            ' Copy computed errors at input conditions
-            For i = 1 To 17
-               errorc(Pt2, i) = errors(i + 5)
-            Next i
-            ' Copy computed errors at output conditions
-            ' Note: errorc has one gap column between input and output conditions
-            For i = 1 To 15
-               errorc(Pt2, i + 18) = errors(i + 25)
-            Next i
+            
+            ' Check if standard errors are given
+            Set error_r = SheetError.Range(SheetError.Cells(pt + 3, 1), SheetError.Cells(pt + 3, 9))
+            ' If standard errors are given at currennt data line
+            If WorksheetFunction.CountA(error_r) <> 0 Then
+                ' Read given standard errors
+                Dim eVar1 As Double, eVar2 As Double, eSal As Double, eTemp As Double, eSil As Double, ePhos As Double, r As Double
+                Call ReaderrorLine(pt, eVar1, eVar2, eSal, eTemp, eSil, ePhos, r)
+                ' Process standard errors
+                Call CalculateErrors(SkipAData, eVar1, eVar2, eSal, eTemp, eSil, ePhos, r, epK(), errors())
+                ' Copy computed errors at input conditions
+                For i = 1 To 17
+                   errorc(Pt2, i) = errors(i + 5)
+                Next i
+                ' Copy computed errors at output conditions
+                ' Note: errorc has one gap column between input and output conditions
+                For i = 1 To 15
+                   errorc(Pt2, i + 18) = errors(i + 25)
+                Next i
+            End If
         End If
        
        ' Update sheet contents with results
        Application.StatusBar = "Points Calculated: Total " + Str(pt) + "  This Batch " + Str(Pt2)
+       DoEvents
        pt = pt + 1: Pt2 = Pt2 + 1
        If (Pt2 > OutputNum) Then
            Application.StatusBar = "Points Calculated: Total " + Str(pt) + "  This Batch " + Str(Pt2) + ".  Formating Data... "
            Range(ActiveCell.Offset(Pt3 + 1, 18), ActiveCell.Offset(Pt3 + Pt2 - 1, 59)).Value = datac
+           Range(ActiveCell.Offset(Pt3 + 1, 18), ActiveCell.Offset(Pt3 + Pt2 - 1, 59)).NumberFormat = datacf
            For i = Pt3 + 1 To Pt3 + Pt2 - 1
               If datac(i, 42) <> "" Then
                  ' Setting color by program makes the total number of row impssible to decrease !
@@ -194,10 +215,11 @@ Sub main()
        If (stilldata = 0) Then
            Application.StatusBar = "Points Calculated: Total " + Str(pt) + "  This Batch " + Str(Pt2) + ".  Formating Data... "
            Range(ActiveCell.Offset(Pt3 + 1, 18), ActiveCell.Offset(Pt3 + Pt2 - 1, 59)).Value = datac
+           Range(ActiveCell.Offset(Pt3 + 1, 18), ActiveCell.Offset(Pt3 + Pt2 - 1, 59)).NumberFormat = datacf
            For i = Pt3 + 1 To Pt3 + Pt2 - 1
               If datac(i, 42) <> "" Then
-                 ' Setting color by program makes the total number of row impssible to decrease !
-                 ' Range(ActiveCell.Offset(i, 16), ActiveCell.Offset(i, 55)).Font.ColorIndex = 3
+                 ' Setting color by program makes the total number of row impossible to decrease !
+                 ' Range(ActiveCell.Offset(i, 18), ActiveCell.Offset(i, 59)).Font.ColorIndex = 3
               End If
            Next i
            If Not IsEmpty(errorc) Then
@@ -206,9 +228,7 @@ Sub main()
        End If
 
   Loop 'end of do while stilldata
-  
-  'Range("$F$3").Value = f3init
-  'Range("$G$3").Value = g3init
+
   Application.StatusBar = ""
 End Sub
 
@@ -232,21 +252,22 @@ Sub ReadDataLine()
 
     ' Read line
      SubFlagok = 0: SubFlagT = ""
-     kk = 1: parami(1) = 0: parami(2) = 0
-     For i = 1 To 5  'inputs Data (TA, TC, pH, pCO2) into param
+     kk = 1: parami(1) = -999: parami(2) = -999
+     For i = 1 To numvar - 2  'inputs Data (TA, TC, pH, pCO2) into param
         param(i) = datar.Value2(1, i)
         If datar.Value2(1, i) <> Empty And kk <= 2 Then  ' And kk <= 2
            parami(kk) = i: kk = kk + 1
         End If
      Next i
-     For i = 1 To 7  'inputs var (S, T, P, Si, Ph) into VarInp
+     For i = 1 To numvar  'inputs var (S, T, P, Si, Ph) into VarInp
         VarInp(i) = varinpr.Value2(1, i)
         If (IsEmpty(varinpr.Cells(1, i)) Or VarInp(i) = -9 Or VarInp(i) = -999) Then
-           'if S, T, Press, P or Si = -999 then =0
-           VarInp(i) = 0
+           VarInp(i) = -999
+           'if Press, P or Si = -999 then =0
            If i >= 3 And i <= 5 Then
+              VarInp(i) = 0
               SubFlagok = 1
-              SubFlagT = SubFlagT + SubFlag(i - 2)
+              If InStr(SubFlagT, SubFlag(i - 2)) = 0 Then SubFlagT = SubFlagT + SubFlag(i - 2)
            End If
         End If
      Next i
@@ -310,13 +331,16 @@ Sub ReaderrorLine(pt, eVar1 As Double, eVar2 As Double, eSal As Double, eTemp As
     
 End Sub
 
-Sub Calculate(inoutconditions() As Double, data() As Double, SkipAData, results() As Double)
+Sub Calculate(inoutconditions() As Double, data() As Double, SkipAData, results() As Double, formats() As String)
 ' Inputs:
 '  - inoutconditions  :  temp, sal, pressure, In and Out, total phosphorus and Silicium and, if TEOS-10, data point location
 '  - data             :  carbonate sytem values
 '  - SkipAData
 '  - global variable parami()
-' Outputs: results(42)
+' Outputs:
+'  - results(40)
+'  - formats(40)
+'
 ' This makes all computations for one input row
 
     Sal = inoutconditions(1): TempC = inoutconditions(2): Pdbar = inoutconditions(3)
@@ -340,7 +364,7 @@ Sub Calculate(inoutconditions() As Double, data() As Double, SkipAData, results(
         Sal = SP
     End If
     
-    Call Constants(pHScale%, WhichKs%, WhoseKSO4%, Sal, TempC, Pdbar, K0, K(), T(), fH, FugFac, VPFac)
+    Call Constants(pHScale%, WhichKs%, WhoseKSO4%, WhoseKF%, Sal, TempC, Pdbar, K0, K(), T(), fH, FugFac, VPFac)
      
     ' Added by JM Epitalon
     ' For computing derivative with respect to Kx, one has to perturb the value of one K
@@ -375,7 +399,7 @@ CalculateOtherParamsAtInputConditions:
     Select Case ICase%
     Case 12: ' input TA, TC
             TA = data(1): TC = data(2)
-            Call FindpHfCO2fromTATC(pHScale%, WhichKs%, WhoseKSO4%, TA, TC, Sal, K(), T(), TempC, Pdbar, pH, fCO2, pCO2)
+            Call FindpHfCO2fromTATC(pHScale%, WhichKs%, WhoseKSO4%, WhoseKF%, TA, TC, Sal, K(), T(), TempC, Pdbar, pH, fCO2, pCO2)
             data(3) = pH: data(4) = fCO2: data(5) = data(4) / FugFac
     Case 13: ' input TA, pH
             TA = data(1): pH = data(3)
@@ -432,14 +456,25 @@ CalculateOtherParamsAtInputConditions:
     Case Else
             GoTo endcalculate
     End Select
- '----------------------------- 'Print Session #1 ------------------------------------
+ 
+ '----------------------------- 'Print Session #1 : Input results------------------------------------
+ 
     results(1) = inoutconditions(1): results(2) = inoutconditions(2): results(3) = inoutconditions(3)
     results(4) = inoutconditions(4) * 1000000: results(5) = inoutconditions(5) * 1000000
     results(1 + 5) = data(1) * 1000000#: results(2 + 5) = data(2) * 1000000#: results(3 + 5) = data(3)
     results(4 + 5) = (10 ^ (-data(3))) * 1000000000# ' [H+] in nmol/Kg
     results(5 + 5) = data(4) * 1000000#: results(6 + 5) = data(5) * 1000000#
         
-    'pHinp = pH: fCO2inp = fCO2: pCO2inp = pCO2
+    For i = 1 To numvar - 2 + 5
+        If i <= numvar - 2 Then
+            formats(i) = "General" 'S,T,P,nuts
+        ElseIf i = numvar - 2 + 3 Then
+            formats(i) = "#0.000" 'pH
+        Else
+            formats(i) = "#0.0" ' Ph, Si...
+        End If
+    Next i
+    
     pHinp = data(3): fCO2inp = data(4): pCO2inp = data(5)
 
     If SkipAData = vbYes Then
@@ -470,15 +505,17 @@ CalculateOtherStuffAtInputConditions:
     VarTemp(i) = OmegaCainp: VarTempF(i) = "#0.00": i = i + 1
     VarTemp(i) = OmegaArinp: VarTempF(i) = "#0.00": i = i + 1
     VarTemp(i) = xCO2dryinp * 1000000#: VarTempF(i) = "#0.0": i = i + 1
+
   '----------------------------- 'Print Session #2 ------------------------------------
     For i = 1 To 11
        results(11 + i) = VarTemp(i)
+       formats(11 + i) = VarTempF(i)
     Next i
 '
 '****************************************************************************
 CalculatepHfCO2AtOutputConditions:
-    'TempC = TempCout: Pdbar = Pdbarout
     TempC = inoutconditions(6): Pdbar = inoutconditions(7)
+    If TempC = -9 Or TempC = -999 Or Pdbar = -9 Or Pdbar = -999 Then GoTo endcalculate
     ' if input temp and salinity are conforming to EOS-10
     If (WhichEOS% = 2) Then
         ' Given TempC is Conservative temperature
@@ -486,7 +523,7 @@ CalculatepHfCO2AtOutputConditions:
         TempC = gsw_t_from_ct(Sal, TempC, Pdbar)
     End If
     
-    Call Constants(pHScale%, WhichKs%, WhoseKSO4%, Sal, TempC, Pdbar, K0, K(), T(), fH, FugFac, VPFac)
+    Call Constants(pHScale%, WhichKs%, WhoseKSO4%, WhoseKF%, Sal, TempC, Pdbar, K0, K(), T(), fH, FugFac, VPFac)
         
     ' Added by JM Epitalon
     ' For computing derivative with respect to Kx, one has to perturb the value of one K
@@ -519,9 +556,11 @@ CalculatepHfCO2AtOutputConditions:
  '----------------------------- 'Print Session #3 ------------------------------------
      
     results(24) = inoutconditions(6): results(25) = inoutconditions(7)
+    formats(24) = "General": formats(25) = "General"  'Inputs
     results(26) = VarTemp(1)
     results(27) = (10 ^ (-VarTemp(1))) * 1000000000# ' [H+] in nmol/Kg
     results(28) = VarTemp(2): results(29) = VarTemp(3)
+    formats(26) = "#0.000": formats(27) = "#0.0": formats(28) = "#0.0"
 '
     If SkipAData = vbYes Then GoTo endcalculate
 '****************************************************************************
@@ -555,6 +594,7 @@ CalculateOtherStuffAtOutputConditions:
  '----------------------------- 'Print Session #4 ------------------------------------
     For i = 1 To 11
        results(29 + i) = VarTemp(i)
+       formats(29 + i) = VarTempF(i)
     Next i
 
 endcalculate:
@@ -594,6 +634,7 @@ Sub Derivnum(varid As String, SkipAData, deriv() As Double)
     Dim input1(9) As Double, input2(9) As Double
     Dim param1(5) As Double, param2(5) As Double
     Dim result1(40) As Double, result2(40) As Double
+    Dim formats(40) As String
     Dim delta#    ' delta perturbation applied on input variable
     
     ' Flag for dissociation constant as perturbed variable
@@ -708,7 +749,7 @@ Sub Derivnum(varid As String, SkipAData, deriv() As Double)
         PertK = varid
         Perturb = -perturbation
     End If
-    Call Calculate(input1(), param1(), SkipAData, result1())
+    Call Calculate(input1(), param1(), SkipAData, result1(), formats())
 
     ' Point 2: (one dissociation constant or PAR1, PAR2, T or S is somewhat bigger)
     ' if perturbed variable is a dissociation constant
@@ -716,7 +757,7 @@ Sub Derivnum(varid As String, SkipAData, deriv() As Double)
         PertK = varid
         Perturb = perturbation
     End If
-    Call Calculate(input2(), param2(), SkipAData, result2())
+    Call Calculate(input2(), param2(), SkipAData, result2(), formats())
     ' if perturbed variable is a dissociation constant
     If flag_dissoc_K Then
         PertK = ""  ' Return to normal (unperturbed) K
@@ -901,7 +942,7 @@ Sub CalculateErrors(SkipAData, eVar1 As Double, eVar2 As Double, eSal As Double,
     ' Remark : does not compute error where SI = 0
     '          because computation of sensitivity to SI fails in that case
     '
-    Sil# = param(5)
+    Sil# = VarInp(5)
     If Sil# <> 0 And eSil <> 0 Then
         ' Compute sensitivities (partial derivatives)
         Call Derivnum("sil", SkipAData, deriv())
@@ -916,7 +957,7 @@ Sub CalculateErrors(SkipAData, eVar1 As Double, eVar2 As Double, eSal As Double,
     ' Remark : does not compute error where PO4 = 0
     '          because computation of sensitivity to PO4 fails in that case
     '
-    Phos# = param(4)
+    Phos# = VarInp(4)
     If Phos# <> 0 And ePhos <> 0 Then
         ' Compute sensitivities (partial derivatives)
         Call Derivnum("phos", SkipAData, deriv())
@@ -949,7 +990,7 @@ Sub CalculateErrors(SkipAData, eVar1 As Double, eVar2 As Double, eSal As Double,
     ' Calculate dissociation constants at input conditions
     Sal = VarInp(1): TempC = VarInp(2): Pdbar = VarInp(3)
     Dim K_inp(10), K0_inp
-    Call Constants(pHScale%, WhichKs%, WhoseKSO4%, Sal, TempC, Pdbar, K0_inp, K_inp(), T(), fH, FugFac, VPFac)
+    Call Constants(pHScale%, WhichKs%, WhoseKSO4%, WhoseKF%, Sal, TempC, Pdbar, K0_inp, K_inp(), T(), fH, FugFac, VPFac)
     
     ' Calculate solubility products at input conditions
     Dim KCa, KAr
@@ -1668,10 +1709,25 @@ AboutMacroHistory1:
         mess(16) = mess(16) + "      . References to  'Cai and Wang, 2008' have been corrected to 'Cai and Wang, 1998'" + Chr$(LF)
         mess(16) = mess(16) + "      . Incorporated version number in the name of the file and removed it from the 'INFO' sheet (see v.2.0)" + Chr$(LF)
         mess(16) = mess(16) + Chr$(LF)
-        mess(16) = mess(16) + "Version 2.2 (9 June 2016): CO2sys_v2.2.xls" + Chr$(LF) + Chr$(LF)
+        mess(16) = mess(16) + "Version 2.2 (27 October 2015): CO2sys_v2.2xls" + Chr$(LF) + Chr$(LF)
+        mess(16) = mess(16) + "      . Added the choice of 'Perez and Fraga, 1987' for KF" + Chr$(LF)
+        mess(16) = mess(16) + "      . Set the defaults to Lueker for K1,K2, Dickson for KHSO4, Perez for KF, Total for pH Scale and Lee for [B]T" + Chr$(LF)
+        mess(16) = mess(16) + "      . Added the 'SubFlags' and 'Red data rows': " + Chr$(LF)
+        mess(16) = mess(16) + "                 If Pressure, Phosphate or Silica is '-999', calculations will performed with the parameter set to 0" + Chr$(LF)
+        mess(16) = mess(16) + "                 and the resulting row of data will be colored in red. The 'SubFlag' column at the end will state the reason." + Chr$(LF)
+        mess(16) = mess(16) + Chr$(LF)
+        mess(16) = mess(16) + "Version 2.3 (18 November 2016): CO2sys_v2.3xls" + Chr$(LF) + Chr$(LF)
+        mess(16) = mess(16) + "      . Corrected output format of results" + Chr$(LF)
+        mess(16) = mess(16) + "      . Bug fix: added code to prevent calculation of pH (fromTATC or fromTAfCO2) from getting stuck in infinite loop" + Chr$(LF)
+        mess(16) = mess(16) + "                 of alternatively negative and positive delta pHs." + Chr$(LF)
+        mess(16) = mess(16) + "      . Bug fix: Corrected handling of -999 in data. would skip line at first encountered -999 in CO2 parameter." + Chr$(LF)
+        mess(16) = mess(16) + "                 Would also not handle -999 in output conditions. (11/18/2016)" + Chr$(LF)
+        mess(16) = mess(16) + "      . Bug fix: Corrected coloring of problematic line in red and expanded "results" range to clear to include flag in last column. (11/18/2016)" + Chr$(LF)
+        mess(16) = mess(16) + Chr$(LF)
+        mess(16) = mess(16) + "Version 2.4 (9 June 2016): CO2sys_v2.4.xls" + Chr$(LF) + Chr$(LF)
         mess(16) = mess(16) + "      . Added error propagation in a new sheet titled ""ERROR""" + Chr$(LF)
         mess(16) = mess(16) + Chr$(LF)
-        mess(16) = mess(16) + "Version 2.3 (25 January 2017): CO2sys_v2.3.xls" + Chr$(LF) + Chr$(LF)
+        mess(16) = mess(16) + "Version 2.5 (25 January 2017): CO2sys_v2.5.xls" + Chr$(LF) + Chr$(LF)
         mess(16) = mess(16) + "      . Added an option for TEOS-10" + Chr$(LF)
         mess(16) = mess(16) + Chr$(LF)
 '
@@ -1680,7 +1736,7 @@ AboutMacroHistory1:
 
 End Sub
 
-Sub Initiate()
+Sub Initiate(SetDefaults)
    
 ' In order to open gsw.dll which is in the same folder as this workbook
 Application.DefaultFilePath = CStr(Application.ActiveWorkbook.Path)
@@ -1688,16 +1744,18 @@ Application.DefaultFilePath = CStr(Application.ActiveWorkbook.Path)
 PertK = 0    ' Id of perturbed K for computing derivatives
 
 '********************** DEFAULT**************************
-WhichKsDefault% = 10             ' D&M refit
+WhichKsDefault% = 10             ' Lueker 2000
 WhoseKSO4Default% = 1 ' Dickson's KSO4
+WhoseKFDefault% = 2 ' Perez and Fraga's KF
 pHScaleDefault% = 1   ' Total pH scale
-WhichTBDefault% = 1             ' Uppstrom
+pHScaleDefault% = 1   ' Total pH scale
+WhichTBDefault% = 2    'Lee
 WhichEOSDefault% = 1            ' EOS-80
-
 'BatchDefault% = 1        ' single-input mode
 'TA = 0.0023:            ' mol/kg-SW
 'TC = 0.0021:            ' mol/kg-SW
-'pHinp = 7.9:            '
+'pHinp = 7.9:            '1967
+
 'fCO2inp = 0.0006:       ' atm
 'pCO2inp = 0.0006:       ' atm
 'Sal = 35!:              ' mille
@@ -1721,8 +1779,11 @@ phopt(3) = "Free scale (mol/kg-SW) "
 phopt(4) = "NBS scale (mol/kg-H2O) "
 '********************** END OF pH SCALES **************************
 '********************** KHSO4 **************************
-khso4opt(1) = "Dickson "
-khso4opt(2) = "Khoo et al "
+khso4opt(1) = "Dickson, 1990 "
+khso4opt(2) = "Khoo et al., 1977 "
+'********************** KF **************************
+kfopt(1) = "Dickson and Riley, 1979"
+kfopt(2) = "Perez and Fraga, 1987"
 '********************** SET OF CONSTANTS **************************
         kopt(1) = " K1, K2 from Roy, et al., 1993 "   '2s PRECISION about 2% in K1 and 1.5% in K2. "
         kopt(2) = " K1, K2 from Goyet and Poisson, 1989 "  '2s PRECISION about 2.5% in K1 and 4.5% in K2. "
@@ -1751,69 +1812,93 @@ EOSopt(2) = "TEOS-10 "
 '********************** END Equation Of State **************************
 
 Set SheetError = Sheets("ERROR")
-Sheets("INPUT").Select
-'Range("A1").Select
-For i = 1 To UBound(kopt)
-   If i <= UBound(khso4opt) Then Sheets("INPUT").Range("A1").Offset(i, 1).Value = khso4opt(i)
-   If i <= UBound(phopt) Then Sheets("INPUT").Range("A1").Offset(i, 2).Value = phopt(i)
-   Sheets("INPUT").Range("A1").Offset(i, 0).Value = kopt(i)
-Next i
-With Sheets("INPUT").Range(Cells(2, 1).Address, Cells(1 + UBound(kopt), 1).Address)
-   .Interior.ColorIndex = xlNone
-   .HorizontalAlignment = xlLeft
-   .VerticalAlignment = xlCenter
-   .WrapText = True
-End With
-With Sheets("INPUT").Range(Cells(2, 2).Address, Cells(1 + UBound(khso4opt), 2).Address)
-   .Interior.ColorIndex = xlNone
-   .HorizontalAlignment = xlLeft
-   .VerticalAlignment = xlCenter
-   .WrapText = True
-End With
-With Sheets("INPUT").Range(Cells(2, 3).Address, Cells(1 + UBound(phopt), 3).Address)
-   .Interior.ColorIndex = xlNone
-   .HorizontalAlignment = xlLeft
-   .VerticalAlignment = xlCenter
-   .WrapText = True
-End With
-With Sheets("INPUT").Range(Cells(2, 4).Address, Cells(1 + UBound(tbopt), 3).Address)
-   .Interior.ColorIndex = xlNone
-   .HorizontalAlignment = xlLeft
-   .VerticalAlignment = xlCenter
-   .WrapText = True
-End With
-With Sheets("INPUT").Range(Cells(2, 5).Address, Cells(1 + UBound(EOSopt), 3).Address)
-   .Interior.ColorIndex = xlNone
-   .HorizontalAlignment = xlLeft
-   .VerticalAlignment = xlCenter
-   .WrapText = True
-End With
-With Sheets("INPUT").Cells(1 + WhichKsDefault%, 1).Interior
-        .ColorIndex = 36
-        .Pattern = xlSolid
-        .PatternColorIndex = xlAutomatic
-End With
-With Sheets("INPUT").Cells(1 + WhoseKSO4Default%, 2).Interior
-        .ColorIndex = 36
-        .Pattern = xlSolid
-        .PatternColorIndex = xlAutomatic
-End With
-With Sheets("INPUT").Cells(1 + pHScaleDefault%, 3).Interior
-        .ColorIndex = 36
-        .Pattern = xlSolid
-        .PatternColorIndex = xlAutomatic
-End With
-With Sheets("INPUT").Cells(1 + WhichTBDefault%, 4).Interior
-        .ColorIndex = 36
-        .Pattern = xlSolid
-        .PatternColorIndex = xlAutomatic
-End With
-With Sheets("INPUT").Cells(1 + WhichEOSDefault%, 5).Interior
-        .ColorIndex = 36
-        .Pattern = xlSolid
-        .PatternColorIndex = xlAutomatic
-End With
- 
+If SetDefaults Then
+    Sheets("INPUT").Select
+    For i = 1 To UBound(kopt)
+       Sheets("INPUT").Range("A1").Offset(i, 0).Value = kopt(i)
+    Next i
+    For i = 1 To UBound(khso4opt)
+       Sheets("INPUT").Range("A1").Offset(i, 1).Value = khso4opt(i)
+    Next i
+    For i = 1 To UBound(kfopt)
+       Sheets("INPUT").Range("A1").Offset(i, 2).Value = kfopt(i)
+    Next i
+    For i = 1 To UBound(phopt)
+       Sheets("INPUT").Range("A1").Offset(i, 3).Value = phopt(i)
+    Next i
+    For i = 1 To UBound(tbopt)
+       Sheets("INPUT").Range("A1").Offset(i, 4).Value = tbopt(i)
+    Next i
+    For i = 1 To UBound(EOSopt)
+       Sheets("INPUT").Range("A1").Offset(i, 5).Value = EOSopt(i)
+    Next i
+    With Sheets("INPUT").Range(Cells(2, 1).Address, Cells(1 + UBound(kopt), 1).Address)
+       .Interior.ColorIndex = xlNone
+       .HorizontalAlignment = xlLeft
+       .VerticalAlignment = xlCenter
+       .WrapText = True
+    End With
+    With Sheets("INPUT").Range(Cells(2, 2).Address, Cells(1 + UBound(khso4opt), 2).Address)
+       .Interior.ColorIndex = xlNone
+       .HorizontalAlignment = xlLeft
+       .VerticalAlignment = xlCenter
+       .WrapText = True
+    End With
+    With Sheets("INPUT").Range(Cells(2, 3).Address, Cells(1 + UBound(kfopt), 3).Address)
+       .Interior.ColorIndex = xlNone
+       .HorizontalAlignment = xlLeft
+       .VerticalAlignment = xlCenter
+       .WrapText = True
+    End With
+    With Sheets("INPUT").Range(Cells(2, 4).Address, Cells(1 + UBound(phopt), 4).Address)
+       .Interior.ColorIndex = xlNone
+       .HorizontalAlignment = xlLeft
+       .VerticalAlignment = xlCenter
+       .WrapText = True
+    End With
+    With Sheets("INPUT").Range(Cells(2, 5).Address, Cells(1 + UBound(tbopt), 5).Address)
+       .Interior.ColorIndex = xlNone
+       .HorizontalAlignment = xlLeft
+       .VerticalAlignment = xlCenter
+       .WrapText = True
+    End With
+    With Sheets("INPUT").Range(Cells(2, 6).Address, Cells(1 + UBound(EOSopt), 6).Address)
+       .Interior.ColorIndex = xlNone
+       .HorizontalAlignment = xlLeft
+       .VerticalAlignment = xlCenter
+       .WrapText = True
+    End With
+    With Sheets("INPUT").Cells(1 + WhichKsDefault%, 1).Interior
+            .ColorIndex = 36
+            .Pattern = xlSolid
+            .PatternColorIndex = xlAutomatic
+    End With
+    With Sheets("INPUT").Cells(1 + WhoseKSO4Default%, 2).Interior
+            .ColorIndex = 36
+            .Pattern = xlSolid
+            .PatternColorIndex = xlAutomatic
+    End With
+    With Sheets("INPUT").Cells(1 + WhoseKFDefault%, 3).Interior
+            .ColorIndex = 36
+            .Pattern = xlSolid
+            .PatternColorIndex = xlAutomatic
+    End With
+    With Sheets("INPUT").Cells(1 + pHScaleDefault%, 4).Interior
+            .ColorIndex = 36
+            .Pattern = xlSolid
+            .PatternColorIndex = xlAutomatic
+    End With
+    With Sheets("INPUT").Cells(1 + WhichTBDefault%, 5).Interior
+            .ColorIndex = 36
+            .Pattern = xlSolid
+            .PatternColorIndex = xlAutomatic
+    End With
+    With Sheets("INPUT").Cells(1 + WhichEOSDefault%, 6).Interior
+            .ColorIndex = 36
+            .Pattern = xlSolid
+            .PatternColorIndex = xlAutomatic
+    End With
+End If
 '********************** END OF KHSO4**************************
 'Sheets("INPUT").phcombo.List = phopt
 'Sheets("INPUT").kcombo.List = kopt
@@ -1848,11 +1933,13 @@ Next i
 Erase ms
 InitiateOK = True
 
+Sheets("DATA").Select
+
 End Sub
 
-Sub Constants(pHScale%, WhichKs%, WhoseKSO4%, Sal, TempC, Pdbar, K0, K(), T(), fH, FugFac, VPFac)
+Sub Constants(pHScale%, WhichKs%, WhoseKSO4%, WhoseKF%, Sal, TempC, Pdbar, K0, K(), T(), fH, FugFac, VPFac)
 ' SUB Constants, version 04.01, 10-13-97, written by Ernie Lewis.
-' Inputs: pHScale%, WhichKs%, WhoseKSO4%, Sal, TempC, Pdbar
+' Inputs: pHScale%, WhichKs%, WhoseKSO4%, WhoseKF%, Sal, TempC, Pdbar
 ' Outputs: K0, K(), T(), fH, FugFac, VPFac
 ' This finds the constants of the CO2 system in seawater or freshwater,
 ' corrects them for pressure, and reports them on the chosen pH scale.
@@ -1990,10 +2077,19 @@ CalculateKS:
 '
 '****************************************************************************
 CalculateKF:
-        ' Dickson, A. G. and Riley, J. P., Marine Chemistry 7:89-99, 1979:
-        lnKF = 1590.2 / TempK - 12.641 + 1.525 * Sqr(IonS)
-        KF = Exp(lnKF): ' this is on the free pH scale in mol/kg-H2O
-        KF = KF * (1! - 0.001005 * Sal): ' convert to mol/kg-SW
+        Select Case WhoseKF%
+        Case 1
+                ' Dickson, A. G. and Riley, J. P., Marine Chemistry 7:89-99, 1979:
+                lnKF = 1590.2 / TempK - 12.641 + 1.525 * Sqr(IonS)
+                KF = Exp(lnKF): ' this is on the free pH scale in mol/kg-H2O
+                KF = KF * (1! - 0.001005 * Sal): ' convert to mol/kg-SW
+        Case 2
+                ' Perez,F.F. and Fraga, F., Marine Chemistry 21(2):161-168, 1987
+                'S =10-40   T=9-33 oC
+                InKF = -874 / TempK - 0.111 * Sal ^ 0.5 + 9.68 ' this is ASSOCIATION CNST
+                lnKF = -lnKF
+                KF = Exp(lnKF): ' this is on the free pH scale in mol/kg-SW
+        End Select
 '
 '
 '****************************************************************************
@@ -2358,14 +2454,14 @@ CalculateK1K2:
             pK10 = -126.34048 + 6320.813 / TempK + 19.568224 * Log(TempK)
             A1 = 13.4191 * Sal ^ 0.5 + 0.0331 * Sal - 0.0000533 * Sal ^ 2
             B1 = -530.123 * Sal ^ 0.5 - 6.103 * Sal
-            C1 = -2.0695 * Sal ^ 0.5
-            pK1 = A1 + B1 / TempK + C1 * Log(TempK) + pK10     ' pK1 sigma = 0.0054
+            c1 = -2.0695 * Sal ^ 0.5
+            pK1 = A1 + B1 / TempK + c1 * Log(TempK) + pK10     ' pK1 sigma = 0.0054
             K1 = 10# ^ -(pK1)
             pK20 = -90.18333 + 5143.692 / TempK + 14.613358 * Log(TempK)
             A2 = 21.0894 * Sal ^ 0.5 + 0.1248 * Sal - 0.0003687 * Sal ^ 2
             b2 = -772.483 * Sal ^ 0.5 - 20.051 * Sal
-            C2 = -3.3336 * Sal ^ 0.5
-            pK2 = A2 + b2 / TempK + C2 * Log(TempK) + pK20        'pK2 sigma = 0.011
+            c2 = -3.3336 * Sal ^ 0.5
+            pK2 = A2 + b2 / TempK + c2 * Log(TempK) + pK20        'pK2 sigma = 0.011
             K2 = 10# ^ -(pK2)
         
         Case 14    ' From Millero, 2010, also for estuarine use.
@@ -2378,16 +2474,16 @@ CalculateK1K2:
             ' This is from their table 2, page 140.
             A1 = 13.4038 * Sal ^ 0.5 + 0.03206 * Sal - 0.00005242 * Sal ^ 2
             B1 = -530.659 * Sal ^ 0.5 - 5.821 * Sal
-            C1 = -2.0664 * Sal ^ 0.5
-            pK1 = pK10 + A1 + B1 / TempK + C1 * Log(TempK)
+            c1 = -2.0664 * Sal ^ 0.5
+            pK1 = pK10 + A1 + B1 / TempK + c1 * Log(TempK)
             K1 = 10# ^ -pK1
             ' This is from page 141
             pK20 = -90.18333 + 5143.692 / TempK + 14.613358 * Log(TempK)
             ' This is from their table 3, page 140.
             A2 = 21.3728 * Sal ^ 0.5 + 0.1218 * Sal - 0.0003688 * Sal ^ 2
             b2 = -788.289 * Sal ^ 0.5 - 19.189 * Sal
-            C2 = -3.374 * Sal ^ 0.5
-            pK2 = pK20 + A2 + b2 / TempK + C2 * Log(TempK)
+            c2 = -3.374 * Sal ^ 0.5
+            pK2 = pK20 + A2 + b2 / TempK + c2 * Log(TempK)
             K2 = 10# ^ -pK2
  
     End Select
@@ -2791,6 +2887,7 @@ Sub CalculatefCO2fromTCpH(TC, pH, K0, K1, K2, fCO2)
 End Sub
 
 Sub CalculatepHfromTAfCO2(TA, fCO2, K0, K(), T(), pH)
+Dim deltapp(1 To 2): deltapp(1) = 0: deltapp(2) = 0
 ' SUB CalculatepHfromTAfCO2, version 04.01, 10-13-97, written by Ernie Lewis.
 ' Inputs: TA, fCO2, K0, K(), T()
 ' Output: pH
@@ -2811,6 +2908,7 @@ Sub CalculatepHfromTAfCO2(TA, fCO2, K0, K(), T(), pH)
         pHTol = 0.0001: ' this is .0001 pH units
         ln10 = Log(10!)
         pH = pHGuess
+        localmin = 0: Count = 1: loopc = 0
         Do
                 H = 10! ^ (-pH)
                 HCO3 = K0 * K1 * fCO2 / H
@@ -2831,14 +2929,28 @@ Sub CalculatepHfromTAfCO2(TA, fCO2, K0, K(), T(), pH)
 '               find Slope dTA/dpH
 '               (this is not exact, but keeps all important terms):
                 Slope = ln10 * (HCO3 + 4! * CO3 + BAlk * H / (KB + H) + OH + H)
-                deltapH = Residual / Slope: ' this is Newton's method
+                DeltapH = Residual / Slope: ' this is Newton's method
+                ' to avoid being stuck in infinite loop of alternating deltapH values:
+                If loopc <= 2 Then deltapp(Count) = DeltapH: Count = 3 - Count
+                If loopc > 2 Then
+                   If Abs(deltapp(Count) - DeltapH) < 5 * pHTol Then localmin = localmin + 1
+                   If localmin > 50 Then DeltapH = DeltapH / 2!: localmin = 0
+                   deltapp(Count) = DeltapH: Count = 3 - Count
+                End If
+                loopc = loopc + 1
+                If loopc > 10000 Then
+                    SubFlagok = 1
+                    If InStr(SubFlagT, "pH did not converge") = 0 Then SubFlagT = SubFlagT + "pH did not converge. "
+                    DeltapH = pHTol * 0.9
+                End If
                 ' to keep the jump from being too big:
-                Do While Abs(deltapH) > 1!: deltapH = deltapH / 2!: Loop
-                pH = pH + deltapH
-        Loop While Abs(deltapH) > pHTol
+                Do While Abs(DeltapH) > 1!: DeltapH = DeltapH / 2!: Loop
+                pH = pH + DeltapH
+        Loop While Abs(DeltapH) > pHTol
 End Sub
 
 Sub CalculatepHfromTATC(TA, TC, K(), T(), pH)
+Dim deltapp(1 To 2): deltapp(1) = 0: deltapp(2) = 0
 ' SUB CalculatepHfromTATC, version 04.01, 10-13-96, written by Ernie Lewis.
 ' Inputs: TA, TC, K(), T()
 ' Output: pH
@@ -2859,6 +2971,7 @@ Sub CalculatepHfromTATC(TA, TC, K(), T(), pH)
         pHTol = 0.0001: ' this is .0001 pH units
         ln10 = Log(10!)
         pH = pHGuess
+        localmin = 0: Count = 1: loopc = 0
         Do
                 H = 10! ^ (-pH)
                 Denom = (H * H + K1 * H + K1 * K2)
@@ -2878,12 +2991,26 @@ Sub CalculatepHfromTATC(TA, TC, K(), T(), pH)
 '               find Slope dTA/dpH:
 '               (this is not exact, but keeps all important terms):
                 Slope = ln10 * (TC * K1 * H * (H * H + K1 * K2 + 4! * H * K2) / Denom / Denom + BAlk * H / (KB + H) + OH + H)
-                deltapH = Residual / Slope: ' this is Newton's method
+                DeltapH = Residual / Slope: ' this is Newton's method
+                ' to avoid being stuck in infinite loop of alternating deltapH values:
+                If loopc <= 2 Then deltapp(Count) = DeltapH: Count = 3 - Count
+                If loopc > 2 Then
+                   If Abs(deltapp(Count) - DeltapH) < 5 * pHTol Then localmin = localmin + 1
+                   If localmin > 50 Then DeltapH = DeltapH / 2!: localmin = 0
+                   deltapp(Count) = DeltapH: Count = 3 - Count
+                End If
+                loopc = loopc + 1
+                If loopc > 10000 Then
+                    SubFlagok = 1
+                    If InStr(SubFlagT, "pH did not converge") = 0 Then SubFlagT = SubFlagT + "pH did not converge. "
+                    DeltapH = pHTol * 0.9
+                End If
                 ' to keep the jump from being too big:
-                Do While Abs(deltapH) > 1!: deltapH = deltapH / 2!: Loop
-                pH = pH + deltapH
-        Loop While Abs(deltapH) > pHTol
+                Do While Abs(DeltapH) > 1!: DeltapH = DeltapH / 2!: Loop
+                pH = pH + DeltapH
+        Loop While Abs(DeltapH) > pHTol
 End Sub
+
 
 Sub CalculatepHfromTCfCO2(TC, fCO2, K0, K1, K2, pH)
 ' SUB CalculatepHfromTCfCO2, version 02.02, 11-12-96, written by Ernie Lewis.
@@ -2977,9 +3104,9 @@ Sub CalculateTCfromTApH(TA, pH, K(), T(), TC)
         TC = CAlk * (H * H + K1 * H + K1 * K2) / (K1 * (H + 2! * K2))
 End Sub
 
-Sub Case1Partials(pHScale%, WhichKs%, WhoseKSO4%, fORp$, Sal, K(), T(), TempCinp, TempCout, Pdbarinp, Pdbarout, TA, TC, pHinp, fCO2inp, pCO2inp, pHout, fCO2out, pCO2out)
+Sub Case1Partials(pHScale%, WhichKs%, WhoseKSO4%, WhoseKF%, fORp$, Sal, K(), T(), TempCinp, TempCout, Pdbarinp, Pdbarout, TA, TC, pHinp, fCO2inp, pCO2inp, pHout, fCO2out, pCO2out)
 ' SUB Case1Partials, version 01.04, 03-12-97, written by Ernie Lewis.
-' Inputs: pHScale%, WhichKs%, WhoseKSO4%, fORp$
+' Inputs: pHScale%, WhichKs%, WhoseKSO4%, WhoseKF%, fORp$
 ' Inputs: Sal, K(), T(), TempCinp, TempCout, Pdbarinp, Pdbarout
 ' Inputs: TA, TC, pHinp, fCO2inp, pCO2inp, pHout, fCO2out, pCO2out
 ' Outputs: none
@@ -3003,7 +3130,7 @@ Sub Case1Partials(pHScale%, WhichKs%, WhoseKSO4%, fORp$, Sal, K(), T(), TempCinp
                 dpCO2inpdTA = (pCO2 - pCO2inp0) / dTA
 '       Do at Tout, Pout
                 TempC = TempCout: Pdbar = Pdbarout
-                Call FindpHfCO2fromTATC(pHScale%, WhichKs%, WhoseKSO4%, TA, TC, Sal, K(), T(), TempC, Pdbar, pH, fCO2, pCO2)
+                Call FindpHfCO2fromTATC(pHScale%, WhichKs%, WhoseKSO4%, WhoseKF%, TA, TC, Sal, K(), T(), TempC, Pdbar, pH, fCO2, pCO2)
                 dpHoutdTA = (pH - pHout0) / dTA
                 dfCO2outdTA = (fCO2 - fCO2out0) / dTA
                 dpCO2outdTA = (pCO2 - pCO2out0) / dTA
@@ -3020,7 +3147,7 @@ Sub Case1Partials(pHScale%, WhichKs%, WhoseKSO4%, fORp$, Sal, K(), T(), TempCinp
                 dpCO2inpdTC = (pCO2 - pCO2inp0) / dTC
 '       Do at Tout, Pout
                 TempC = TempCout: Pdbar = Pdbarout
-                Call FindpHfCO2fromTATC(pHScale%, WhichKs%, WhoseKSO4%, TA, TC, Sal, K(), T(), TempC, Pdbar, pH, fCO2, pCO2)
+                Call FindpHfCO2fromTATC(pHScale%, WhichKs%, WhoseKSO4%, WhoseKF%, TA, TC, Sal, K(), T(), TempC, Pdbar, pH, fCO2, pCO2)
                 dpHoutdTC = (pH - pHout0) / dTC
                 dfCO2outdTC = (fCO2 - fCO2out0) / dTC
                 dpCO2outdTC = (pCO2 - pCO2out0) / dTC
@@ -3037,7 +3164,7 @@ Sub Case1Partials(pHScale%, WhichKs%, WhoseKSO4%, fORp$, Sal, K(), T(), TempCinp
                 dpCO2inpdSal = (pCO2 - pCO2inp0) / dSal
 '       Do at Tout, Pout
                 TempC = TempCout: Pdbar = Pdbarout
-                Call FindpHfCO2fromTATC(pHScale%, WhichKs%, WhoseKSO4%, TA, TC, Sal, K(), T(), TempC, Pdbar, pH, fCO2, pCO2)
+                Call FindpHfCO2fromTATC(pHScale%, WhichKs%, WhoseKSO4%, WhoseKF%, TA, TC, Sal, K(), T(), TempC, Pdbar, pH, fCO2, pCO2)
                 dpHoutdSal = (pH - pHout0) / dSal
                 dfCO2outdSal = (fCO2 - fCO2out0) / dSal
                 dpCO2outdSal = (pCO2 - pCO2out0) / dSal
@@ -3122,7 +3249,7 @@ PrintPartialsForCase1:
 Exit Sub
 '****************************************************************************
 GetConstantsforCase1Partials:
-        Call Constants(pHScale%, WhichKs%, WhoseKSO4%, Sal, TempC, Pdbar, K0, K(), T(), fH, FugFac, VPFac)
+        Call Constants(pHScale%, WhichKs%, WhoseKSO4%, WhoseKF%, Sal, TempC, Pdbar, K0, K(), T(), fH, FugFac, VPFac)
         K1 = K(1): K2 = K(2)
 Return
 CalculateStuffForCase1Partials:
@@ -3133,9 +3260,9 @@ CalculateStuffForCase1Partials:
 Return
 End Sub
 
-Sub Case2Partials(pHScale%, WhichKs%, WhoseKSO4%, fORp$, Sal, K(), T(), TempCinp, TempCout, Pdbarinp, Pdbarout, TA, pHinp, TC, fCO2inp, pCO2inp, pHout, fCO2out, pCO2out)
+Sub Case2Partials(pHScale%, WhichKs%, WhoseKSO4%, WhoseKF%, fORp$, Sal, K(), T(), TempCinp, TempCout, Pdbarinp, Pdbarout, TA, pHinp, TC, fCO2inp, pCO2inp, pHout, fCO2out, pCO2out)
 ' SUB Case2Partials, version 01.04, 03-12-97, written by Ernie Lewis.
-' Inputs: pHScale%, WhichKs%, WhoseKSO4%, fORp$
+' Inputs: pHScale%, WhichKs%, WhoseKSO4%, WhoseKF%, fORp$
 ' Inputs: Sal, K(), T(), TempCinp, TempCout, Pdbarinp, Pdbarout
 ' Inputs: TA, pHinp, TC, fCO2inp, pCO2inp, pHout, fCO2out, pCO2out
 ' Outputs: none
@@ -3160,7 +3287,7 @@ Sub Case2Partials(pHScale%, WhichKs%, WhoseKSO4%, fORp$, Sal, K(), T(), TempCinp
                 dpCO2inpdTA = (pCO2 - pCO2inp0) / dTA
 '       Do at Tout, Pout
                 TempC = TempCout: Pdbar = Pdbarout
-                Call FindpHfCO2fromTATC(pHScale%, WhichKs%, WhoseKSO4%, TA, TC, Sal, K(), T(), TempC, Pdbar, pH, fCO2, pCO2)
+                Call FindpHfCO2fromTATC(pHScale%, WhichKs%, WhoseKSO4%, WhoseKF%, TA, TC, Sal, K(), T(), TempC, Pdbar, pH, fCO2, pCO2)
                 dpHoutdTA = (pH - pHout0) / dTA
                 dfCO2outdTA = (fCO2 - fCO2out0) / dTA
                 dpCO2outdTA = (pCO2 - pCO2out0) / dTA
@@ -3177,7 +3304,7 @@ Sub Case2Partials(pHScale%, WhichKs%, WhoseKSO4%, fORp$, Sal, K(), T(), TempCinp
                 dpCO2inpdpH = (pCO2 - pCO2inp0) / dpH
 '       Do at Tout, Pout
                 TempC = TempCout: Pdbar = Pdbarout
-                Call FindpHfCO2fromTATC(pHScale%, WhichKs%, WhoseKSO4%, TA, TC, Sal, K(), T(), TempC, Pdbar, pH, fCO2, pCO2)
+                Call FindpHfCO2fromTATC(pHScale%, WhichKs%, WhoseKSO4%, WhoseKF%, TA, TC, Sal, K(), T(), TempC, Pdbar, pH, fCO2, pCO2)
                 dpHoutdpH = (pH - pHout0) / dpH
                 dfCO2outdpH = (fCO2 - fCO2out0) / dpH
                 dpCO2outdpH = (pCO2 - pCO2out0) / dpH
@@ -3194,7 +3321,7 @@ Sub Case2Partials(pHScale%, WhichKs%, WhoseKSO4%, fORp$, Sal, K(), T(), TempCinp
                 dpCO2inpdSal = (pCO2 - pCO2inp0) / dSal
 '       Do at Tout, Pout
                 TempC = TempCout: Pdbar = Pdbarout
-                Call FindpHfCO2fromTATC(pHScale%, WhichKs%, WhoseKSO4%, TA, TC, Sal, K(), T(), TempC, Pdbar, pH, fCO2, pCO2)
+                Call FindpHfCO2fromTATC(pHScale%, WhichKs%, WhoseKSO4%, WhoseKF%, TA, TC, Sal, K(), T(), TempC, Pdbar, pH, fCO2, pCO2)
                 dpHoutdSal = (pH - pHout0) / dSal
                 dfCO2outdSal = (fCO2 - fCO2out0) / dSal
                 dpCO2outdSal = (pCO2 - pCO2out0) / dSal
@@ -3211,7 +3338,7 @@ Sub Case2Partials(pHScale%, WhichKs%, WhoseKSO4%, fORp$, Sal, K(), T(), TempCinp
                 dpCO2inpdTempCinp = (pCO2 - pCO2inp0) / dTempC
 '       Do at Tout, Pout
                 TempC = TempCout: Pdbar = Pdbarout
-                Call FindpHfCO2fromTATC(pHScale%, WhichKs%, WhoseKSO4%, TA, TC, Sal, K(), T(), TempC, Pdbar, pH, fCO2, pCO2)
+                Call FindpHfCO2fromTATC(pHScale%, WhichKs%, WhoseKSO4%, WhoseKF%, TA, TC, Sal, K(), T(), TempC, Pdbar, pH, fCO2, pCO2)
                 dpHoutdTempCinp = (pH - pHout0) / dTempC
                 dfCO2outdTempCinp = (fCO2 - fCO2out0) / dTempC
                 dpCO2outdTempCinp = (pCO2 - pCO2out0) / dTempC
@@ -3227,7 +3354,7 @@ Sub Case2Partials(pHScale%, WhichKs%, WhoseKSO4%, fORp$, Sal, K(), T(), TempCinp
                 dpCO2inpdPdbarinp = (pCO2 - pCO2inp0) / dPdbar
 '       Do at Tout, Pout
                 TempC = TempCout: Pdbar = Pdbarout
-                Call FindpHfCO2fromTATC(pHScale%, WhichKs%, WhoseKSO4%, TA, TC, Sal, K(), T(), TempC, Pdbar, pH, fCO2, pCO2)
+                Call FindpHfCO2fromTATC(pHScale%, WhichKs%, WhoseKSO4%, WhoseKF%, TA, TC, Sal, K(), T(), TempC, Pdbar, pH, fCO2, pCO2)
                 dpHoutdPdbarinp = (pH - pHout0) / dPdbar
                 dfCO2outdPdbarinp = (fCO2 - fCO2out0) / dPdbar
                 dpCO2outdPdbarinp = (pCO2 - pCO2out0) / dPdbar
@@ -3256,7 +3383,7 @@ Sub Case2Partials(pHScale%, WhichKs%, WhoseKSO4%, fORp$, Sal, K(), T(), TempCinp
                 dpCO2inppcdK1 = (pCO2 - pCO2inp0) / pcdK1
 '       Do at Tout, Pout
                 TempC = TempCout: Pdbar = Pdbarout
-                Call FindpHfCO2fromTATC(pHScale%, WhichKs%, WhoseKSO4%, TA, TC, Sal, K(), T(), TempC, Pdbar, pH, fCO2, pCO2)
+                Call FindpHfCO2fromTATC(pHScale%, WhichKs%, WhoseKSO4%, WhoseKF%, TA, TC, Sal, K(), T(), TempC, Pdbar, pH, fCO2, pCO2)
                 dpHoutpcdK1 = (pH - pHout0) / pcdK1
                 dfCO2outpcdK1 = (fCO2 - fCO2out0) / pcdK1
                 dpCO2outpcdK1 = (pCO2 - pCO2out0) / pcdK1
@@ -3273,7 +3400,7 @@ Sub Case2Partials(pHScale%, WhichKs%, WhoseKSO4%, fORp$, Sal, K(), T(), TempCinp
                 dpCO2inppcdK2 = (pCO2 - pCO2inp0) / pcdK2
 '       Do at Tout, Pout
                 TempC = TempCout: Pdbar = Pdbarout
-                Call FindpHfCO2fromTATC(pHScale%, WhichKs%, WhoseKSO4%, TA, TC, Sal, K(), T(), TempC, Pdbar, pH, fCO2, pCO2)
+                Call FindpHfCO2fromTATC(pHScale%, WhichKs%, WhoseKSO4%, WhoseKF%, TA, TC, Sal, K(), T(), TempC, Pdbar, pH, fCO2, pCO2)
                 dpHoutpcdK2 = (pH - pHout0) / pcdK2
                 dfCO2outpcdK2 = (fCO2 - fCO2out0) / pcdK2
                 dpCO2outpcdK2 = (pCO2 - pCO2out0) / pcdK2
@@ -3307,7 +3434,7 @@ PrintPartialsForCase2:
 Exit Sub
 '****************************************************************************
 GetConstantsforCase2Partials:
-        Call Constants(pHScale%, WhichKs%, WhoseKSO4%, Sal, TempC, Pdbar, K0, K(), T(), fH, FugFac, VPFac)
+        Call Constants(pHScale%, WhichKs%, WhoseKSO4%, WhoseKF%, Sal, TempC, Pdbar, K0, K(), T(), fH, FugFac, VPFac)
         K1 = K(1): K2 = K(2)
 Return
 CalculateStuffForCase2Partials:
@@ -3318,9 +3445,9 @@ CalculateStuffForCase2Partials:
 Return
 End Sub
 
-Sub Case3Partials(pHScale%, WhichKs%, WhoseKSO4%, fORp$, Sal, K(), T(), TempCinp, TempCout, Pdbarinp, Pdbarout, TA, fCO2inp, pCO2inp, TC, pHinp, pHout, fCO2out, pCO2out)
+Sub Case3Partials(pHScale%, WhichKs%, WhoseKSO4%, WhoseKF%, fORp$, Sal, K(), T(), TempCinp, TempCout, Pdbarinp, Pdbarout, TA, fCO2inp, pCO2inp, TC, pHinp, pHout, fCO2out, pCO2out)
 ' SUB Case3Partials, version 01.04, 03-12-97, written by Ernie Lewis.
-' Inputs: pHScale%, WhichKs%, WhoseKSO4%, fORp$
+' Inputs: pHScale%, WhichKs%, WhoseKSO4%, WhoseKF%, fORp$
 ' Inputs: Sal, K(), T(), TempCinp, TempCout, Pdbarinp, Pdbarout
 ' Inputs: TA, fCO2inp, pCO2inp, TC, pHinp, pHout, fCO2out, pCO2out
 ' Outputs: none
@@ -3329,9 +3456,9 @@ Sub Case3Partials(pHScale%, WhichKs%, WhoseKSO4%, fORp$, Sal, K(), T(), TempCinp
 '
 End Sub
 
-Sub Case4Partials(pHScale%, WhichKs%, WhoseKSO4%, fORp$, Sal, K(), T(), TempCinp, TempCout, Pdbarinp, Pdbarout, TC, pHinp, TA, fCO2inp, pCO2inp, pHout, fCO2out, pCO2out)
+Sub Case4Partials(pHScale%, WhichKs%, WhoseKSO4%, WhoseKF%, fORp$, Sal, K(), T(), TempCinp, TempCout, Pdbarinp, Pdbarout, TC, pHinp, TA, fCO2inp, pCO2inp, pHout, fCO2out, pCO2out)
 ' SUB Case4Partials, version 01.04, 03-12-97, written by Ernie Lewis.
-' Inputs: pHScale%, WhichKs%, WhoseKSO4%, fORp$
+' Inputs: pHScale%, WhichKs%, WhoseKSO4%, WhoseKF%, fORp$
 ' Inputs: Sal, K(), T(), TempCinp, TempCout, Pdbarinp, Pdbarout
 ' Inputs: TC, pHinp, TA, fCO2inp, pCO2inp, pHout, fCO2out, pCO2out
 ' Outputs: none
@@ -3357,7 +3484,7 @@ Sub Case4Partials(pHScale%, WhichKs%, WhoseKSO4%, fORp$, Sal, K(), T(), TempCinp
                 dpCO2inpdTC = (pCO2 - pCO2inp0) / dTC
 '       Do at Tout, Pout
                 TempC = TempCout: Pdbar = Pdbarout
-                Call FindpHfCO2fromTATC(pHScale%, WhichKs%, WhoseKSO4%, TA, TC, Sal, K(), T(), TempC, Pdbar, pH, fCO2, pCO2)
+                Call FindpHfCO2fromTATC(pHScale%, WhichKs%, WhoseKSO4%, WhoseKF%, TA, TC, Sal, K(), T(), TempC, Pdbar, pH, fCO2, pCO2)
                 dpHoutdTC = (pH - pHout0) / dTC
                 dfCO2outdTC = (fCO2 - fCO2out0) / dTC
                 dpCO2outdTC = (pCO2 - pCO2out0) / dTC
@@ -3374,7 +3501,7 @@ Sub Case4Partials(pHScale%, WhichKs%, WhoseKSO4%, fORp$, Sal, K(), T(), TempCinp
                 dpCO2inpdpH = (pCO2 - pCO2inp0) / dpH
 '       Do at Tout, Pout
                 TempC = TempCout: Pdbar = Pdbarout
-                Call FindpHfCO2fromTATC(pHScale%, WhichKs%, WhoseKSO4%, TA, TC, Sal, K(), T(), TempC, Pdbar, pH, fCO2, pCO2)
+                Call FindpHfCO2fromTATC(pHScale%, WhichKs%, WhoseKSO4%, WhoseKF%, TA, TC, Sal, K(), T(), TempC, Pdbar, pH, fCO2, pCO2)
                 dpHoutdpH = (pH - pHout0) / dpH
                 dfCO2outdpH = (fCO2 - fCO2out0) / dpH
                 dpCO2outdpH = (pCO2 - pCO2out0) / dpH
@@ -3391,7 +3518,7 @@ Sub Case4Partials(pHScale%, WhichKs%, WhoseKSO4%, fORp$, Sal, K(), T(), TempCinp
                 dpCO2inpdSal = (pCO2 - pCO2inp0) / dSal
 '       Do at Tout, Pout
                 TempC = TempCout: Pdbar = Pdbarout
-                Call FindpHfCO2fromTATC(pHScale%, WhichKs%, WhoseKSO4%, TA, TC, Sal, K(), T(), TempC, Pdbar, pH, fCO2, pCO2)
+                Call FindpHfCO2fromTATC(pHScale%, WhichKs%, WhoseKSO4%, WhoseKF%, TA, TC, Sal, K(), T(), TempC, Pdbar, pH, fCO2, pCO2)
                 dpHoutdSal = (pH - pHout0) / dSal
                 dfCO2outdSal = (fCO2 - fCO2out0) / dSal
                 dpCO2outdSal = (pCO2 - pCO2out0) / dSal
@@ -3408,7 +3535,7 @@ Sub Case4Partials(pHScale%, WhichKs%, WhoseKSO4%, fORp$, Sal, K(), T(), TempCinp
                 dpCO2inpdTempCinp = (pCO2 - pCO2inp0) / dTempC
 '       Do at Tout, Pout
                 TempC = TempCout: Pdbar = Pdbarout
-                Call FindpHfCO2fromTATC(pHScale%, WhichKs%, WhoseKSO4%, TA, TC, Sal, K(), T(), TempC, Pdbar, pH, fCO2, pCO2)
+                Call FindpHfCO2fromTATC(pHScale%, WhichKs%, WhoseKSO4%, WhoseKF%, TA, TC, Sal, K(), T(), TempC, Pdbar, pH, fCO2, pCO2)
                 dpHoutdTempCinp = (pH - pHout0) / dTempC
                 dfCO2outdTempCinp = (fCO2 - fCO2out0) / dTempC
                 dpCO2outdTempCinp = (pCO2 - pCO2out0) / dTempC
@@ -3424,7 +3551,7 @@ Sub Case4Partials(pHScale%, WhichKs%, WhoseKSO4%, fORp$, Sal, K(), T(), TempCinp
                 dpCO2inpdPdbarinp = (pCO2 - pCO2inp0) / dPdbar
 '       Do at Tout, Pout
                 TempC = TempCout: Pdbar = Pdbarout
-                Call FindpHfCO2fromTATC(pHScale%, WhichKs%, WhoseKSO4%, TA, TC, Sal, K(), T(), TempC, Pdbar, pH, fCO2, pCO2)
+                Call FindpHfCO2fromTATC(pHScale%, WhichKs%, WhoseKSO4%, WhoseKF%, TA, TC, Sal, K(), T(), TempC, Pdbar, pH, fCO2, pCO2)
                 dpHoutdPdbarinp = (pH - pHout0) / dPdbar
                 dfCO2outdPdbarinp = (fCO2 - fCO2out0) / dPdbar
                 dpCO2outdPdbarinp = (pCO2 - pCO2out0) / dPdbar
@@ -3453,7 +3580,7 @@ Sub Case4Partials(pHScale%, WhichKs%, WhoseKSO4%, fORp$, Sal, K(), T(), TempCinp
                 dpCO2inppcdK1 = (pCO2 - pCO2inp0) / pcdK1
 '       Do at Tout, Pout
                 TempC = TempCout: Pdbar = Pdbarout
-                Call FindpHfCO2fromTATC(pHScale%, WhichKs%, WhoseKSO4%, TA, TC, Sal, K(), T(), TempC, Pdbar, pH, fCO2, pCO2)
+                Call FindpHfCO2fromTATC(pHScale%, WhichKs%, WhoseKSO4%, WhoseKF%, TA, TC, Sal, K(), T(), TempC, Pdbar, pH, fCO2, pCO2)
                 dpHoutpcdK1 = (pH - pHout0) / pcdK1
                 dfCO2outpcdK1 = (fCO2 - fCO2out0) / pcdK1
                 dpCO2outpcdK1 = (pCO2 - pCO2out0) / pcdK1
@@ -3470,7 +3597,7 @@ Sub Case4Partials(pHScale%, WhichKs%, WhoseKSO4%, fORp$, Sal, K(), T(), TempCinp
                 dpCO2inppcdK2 = (pCO2 - pCO2inp0) / pcdK2
 '       Do at Tout, Pout
                 TempC = TempCout: Pdbar = Pdbarout
-                Call FindpHfCO2fromTATC(pHScale%, WhichKs%, WhoseKSO4%, TA, TC, Sal, K(), T(), TempC, Pdbar, pH, fCO2, pCO2)
+                Call FindpHfCO2fromTATC(pHScale%, WhichKs%, WhoseKSO4%, WhoseKF%, TA, TC, Sal, K(), T(), TempC, Pdbar, pH, fCO2, pCO2)
                 dpHoutpcdK2 = (pH - pHout0) / pcdK2
                 dfCO2outpcdK2 = (fCO2 - fCO2out0) / pcdK2
                 dpCO2outpcdK2 = (pCO2 - pCO2out0) / pcdK2
@@ -3504,7 +3631,7 @@ PrintPartialsForCase4:
 Exit Sub
 '****************************************************************************
 GetConstantsforCase4Partials:
-        Call Constants(pHScale%, WhichKs%, WhoseKSO4%, Sal, TempC, Pdbar, K0, K(), T(), fH, FugFac, VPFac)
+        Call Constants(pHScale%, WhichKs%, WhoseKSO4%, WhoseKF%, Sal, TempC, Pdbar, K0, K(), T(), fH, FugFac, VPFac)
         K1 = K(1): K2 = K(2)
 Return
 CalculateStuffForCase4Partials:
@@ -3514,9 +3641,9 @@ CalculateStuffForCase4Partials:
 Return
 End Sub
 
-Sub Case5Partials(pHScale%, WhichKs%, WhoseKSO4%, fORp$, Sal, K(), T(), TempCinp, TempCout, Pdbarinp, Pdbarout, TC, fCO2inp, pCO2inp, TA, pHinp, pHout, fCO2out, pCO2out, TCfCO2Flag%)
+Sub Case5Partials(pHScale%, WhichKs%, WhoseKSO4%, WhoseKF%, fORp$, Sal, K(), T(), TempCinp, TempCout, Pdbarinp, Pdbarout, TC, fCO2inp, pCO2inp, TA, pHinp, pHout, fCO2out, pCO2out, TCfCO2Flag%)
 ' SUB Case5Partials, version 01.04, 03-12-97, written by Ernie Lewis.
-' Inputs: pHScale%, WhichKs%, WhoseKSO4%, fORp$
+' Inputs: pHScale%, WhichKs%, WhoseKSO4%, WhoseKF%, fORp$
 ' Inputs: Sal, K(), T(), TempCinp, TempCout, Pdbarinp, Pdbarout
 ' Inputs: TC, fCO2inp, pCO2inp, TA, pHinp, pHout, fCO2out, pCO2out
 ' Inputs: TCfCO2Flag%
@@ -3541,7 +3668,7 @@ Sub Case5Partials(pHScale%, WhichKs%, WhoseKSO4%, fORp$, Sal, K(), T(), TempCinp
                 dTAdTC = (TA - TA0) / dTC
 '       Do at Tout, Pout
                 TempC = TempCout: Pdbar = Pdbarout
-                Call FindpHfCO2fromTATC(pHScale%, WhichKs%, WhoseKSO4%, TA, TC, Sal, K(), T(), TempC, Pdbar, pH, fCO2, pCO2)
+                Call FindpHfCO2fromTATC(pHScale%, WhichKs%, WhoseKSO4%, WhoseKF%, TA, TC, Sal, K(), T(), TempC, Pdbar, pH, fCO2, pCO2)
                 dpHoutdTC = (pH - pHout0) / dTC
                 dfCO2outdTC = (fCO2 - fCO2out0) / dTC
                 dpCO2outdTC = (pCO2 - pCO2out0) / dTC
@@ -3561,7 +3688,7 @@ Sub Case5Partials(pHScale%, WhichKs%, WhoseKSO4%, fORp$, Sal, K(), T(), TempCinp
                 dTAdpCO2 = (TA - TA0) / dpCO2
 '       Do at Tout, Pout
                 TempC = TempCout: Pdbar = Pdbarout
-                Call FindpHfCO2fromTATC(pHScale%, WhichKs%, WhoseKSO4%, TA, TC, Sal, K(), T(), TempC, Pdbar, pH, fCO2, pCO2)
+                Call FindpHfCO2fromTATC(pHScale%, WhichKs%, WhoseKSO4%, WhoseKF%, TA, TC, Sal, K(), T(), TempC, Pdbar, pH, fCO2, pCO2)
                 dpHoutdfCO2 = (pH - pHout0) / dfCO2
                 dpHoutdpCO2 = (pH - pHout0) / dpCO2
                 dfCO2outdfCO2 = (fCO2 - fCO2out0) / dfCO2
@@ -3580,7 +3707,7 @@ Sub Case5Partials(pHScale%, WhichKs%, WhoseKSO4%, fORp$, Sal, K(), T(), TempCinp
                 dpHinpdSal = (pH - pHinp0) / dSal
 '       Do at Tout, Pout
                 TempC = TempCout: Pdbar = Pdbarout
-                Call FindpHfCO2fromTATC(pHScale%, WhichKs%, WhoseKSO4%, TA, TC, Sal, K(), T(), TempC, Pdbar, pH, fCO2, pCO2)
+                Call FindpHfCO2fromTATC(pHScale%, WhichKs%, WhoseKSO4%, WhoseKF%, TA, TC, Sal, K(), T(), TempC, Pdbar, pH, fCO2, pCO2)
                 dpHoutdSal = (pH - pHout0) / dSal
                 dfCO2outdSal = (fCO2 - fCO2out0) / dSal
                 dpCO2outdSal = (pCO2 - pCO2out0) / dSal
@@ -3598,7 +3725,7 @@ Sub Case5Partials(pHScale%, WhichKs%, WhoseKSO4%, fORp$, Sal, K(), T(), TempCinp
                 dpHinpdTempCinp = (pH - pHinp0) / dTempC
 '        Do at Tout, Pout
                 TempC = TempCout: Pdbar = Pdbarout
-                Call FindpHfCO2fromTATC(pHScale%, WhichKs%, WhoseKSO4%, TA, TC, Sal, K(), T(), TempC, Pdbar, pH, fCO2, pCO2)
+                Call FindpHfCO2fromTATC(pHScale%, WhichKs%, WhoseKSO4%, WhoseKF%, TA, TC, Sal, K(), T(), TempC, Pdbar, pH, fCO2, pCO2)
                 dpHoutdTempCinp = (pH - pHout0) / dTempC
                 dfCO2outdTempCinp = (fCO2 - fCO2out0) / dTempC
                 dpCO2outdTempCinp = (pCO2 - pCO2out0) / dTempC
@@ -3613,7 +3740,7 @@ Sub Case5Partials(pHScale%, WhichKs%, WhoseKSO4%, fORp$, Sal, K(), T(), TempCinp
                 dpHinpdPdbarinp = (pH - pHinp0) / dPdbar
 '        Do at Tout, Pout
                 TempC = TempCout: Pdbar = Pdbarout
-                Call FindpHfCO2fromTATC(pHScale%, WhichKs%, WhoseKSO4%, TA, TC, Sal, K(), T(), TempC, Pdbar, pH, fCO2, pCO2)
+                Call FindpHfCO2fromTATC(pHScale%, WhichKs%, WhoseKSO4%, WhoseKF%, TA, TC, Sal, K(), T(), TempC, Pdbar, pH, fCO2, pCO2)
                 dpHoutdPdbarinp = (pH - pHout0) / dPdbar
                 dfCO2outdPdbarinp = (fCO2 - fCO2out0) / dPdbar
                 dpCO2outdPdbarinp = (pCO2 - pCO2out0) / dPdbar
@@ -3629,7 +3756,7 @@ Sub Case5Partials(pHScale%, WhichKs%, WhoseKSO4%, fORp$, Sal, K(), T(), TempCinp
                 dTApcdK0 = (TA - TA0) / pcdK0
 '        Do at Tout, Pout
                 TempC = TempCout: Pdbar = Pdbarout
-                Call FindpHfCO2fromTATC(pHScale%, WhichKs%, WhoseKSO4%, TA, TC, Sal, K(), T(), TempC, Pdbar, pH, fCO2, pCO2)
+                Call FindpHfCO2fromTATC(pHScale%, WhichKs%, WhoseKSO4%, WhoseKF%, TA, TC, Sal, K(), T(), TempC, Pdbar, pH, fCO2, pCO2)
                 dpHoutpcdK0 = (pH - pHout0) / pcdK0
                 dfCO2outpcdK0 = (fCO2 - fCO2out0) / pcdK0
                 dpCO2outpcdK0 = (pCO2 - pCO2out0) / pcdK0
@@ -3645,7 +3772,7 @@ Sub Case5Partials(pHScale%, WhichKs%, WhoseKSO4%, fORp$, Sal, K(), T(), TempCinp
                 dpHinppcdK1 = (pH - pHinp0) / pcdK1
 '        Do at Tout, Pout
                 TempC = TempCout: Pdbar = Pdbarout
-                Call FindpHfCO2fromTATC(pHScale%, WhichKs%, WhoseKSO4%, TA, TC, Sal, K(), T(), TempC, Pdbar, pH, fCO2, pCO2)
+                Call FindpHfCO2fromTATC(pHScale%, WhichKs%, WhoseKSO4%, WhoseKF%, TA, TC, Sal, K(), T(), TempC, Pdbar, pH, fCO2, pCO2)
                 dpHoutpcdK1 = (pH - pHout0) / pcdK1
                 dfCO2outpcdK1 = (fCO2 - fCO2out0) / pcdK1
                 dpCO2outpcdK1 = (pCO2 - pCO2out0) / pcdK1
@@ -3661,7 +3788,7 @@ Sub Case5Partials(pHScale%, WhichKs%, WhoseKSO4%, fORp$, Sal, K(), T(), TempCinp
                 dTApcdK2 = (TA - TA0) / pcdK2
 '        Do at Tout, Pout
                 TempC = TempCout: Pdbar = Pdbarout
-                Call FindpHfCO2fromTATC(pHScale%, WhichKs%, WhoseKSO4%, TA, TC, Sal, K(), T(), TempC, Pdbar, pH, fCO2, pCO2)
+                Call FindpHfCO2fromTATC(pHScale%, WhichKs%, WhoseKSO4%, WhoseKF%, TA, TC, Sal, K(), T(), TempC, Pdbar, pH, fCO2, pCO2)
                 dpHoutpcdK2 = (pH - pHout0) / pcdK2
                 dfCO2outpcdK2 = (fCO2 - fCO2out0) / pcdK2
                 dpCO2outpcdK2 = (pCO2 - pCO2out0) / pcdK2
@@ -3697,7 +3824,7 @@ PrintPartialsForCase5:
 Exit Sub
 '****************************************************************************
 GetConstantsforCase5Partials:
-        Call Constants(pHScale%, WhichKs%, WhoseKSO4%, Sal, TempC, Pdbar, K0, K(), T(), fH, FugFac, VPFac)
+        Call Constants(pHScale%, WhichKs%, WhoseKSO4%, WhoseKF%, Sal, TempC, Pdbar, K0, K(), T(), fH, FugFac, VPFac)
         K1 = K(1): K2 = K(2)
 Return
 CalculateStuffForCase5Partials:
@@ -3714,9 +3841,9 @@ CalculateStuffForCase5Partials:
 Return
 End Sub
 
-Sub Case6Partials(pHScale%, WhichKs%, WhoseKSO4%, fORp$, Sal, K(), T(), TempCinp, TempCout, Pdbarinp, Pdbarout, pHinp, fCO2inp, pCO2inp, TA, TC, pHout, fCO2out, pCO2out)
+Sub Case6Partials(pHScale%, WhichKs%, WhoseKSO4%, WhoseKF%, fORp$, Sal, K(), T(), TempCinp, TempCout, Pdbarinp, Pdbarout, pHinp, fCO2inp, pCO2inp, TA, TC, pHout, fCO2out, pCO2out)
 ' SUB Case6Partials, version 01.04, 03-12-97, written by Ernie Lewis.
-' Inputs: pHScale%, WhichKs%, WhoseKSO4%, fORp$
+' Inputs: pHScale%, WhichKs%, WhoseKSO4%, WhoseKF%, fORp$
 ' Inputs: Sal, K(), T(), TempCinp, TempCout, Pdbarinp, Pdbarout
 ' Inputs: pHinp, fCO2inp, pCO2inp, TA, TC, pHout, fCO2out, pCO2out
 ' Outputs: none
@@ -3739,7 +3866,7 @@ Sub Case6Partials(pHScale%, WhichKs%, WhoseKSO4%, fORp$, Sal, K(), T(), TempCinp
                 dTCdpH = (TC - TC0) / dpH
 '       Do at Tout, Pout
                 TempC = TempCout: Pdbar = Pdbarout
-                Call FindpHfCO2fromTATC(pHScale%, WhichKs%, WhoseKSO4%, TA, TC, Sal, K(), T(), TempC, Pdbar, pH, fCO2, pCO2)
+                Call FindpHfCO2fromTATC(pHScale%, WhichKs%, WhoseKSO4%, WhoseKF%, TA, TC, Sal, K(), T(), TempC, Pdbar, pH, fCO2, pCO2)
                 dpHoutdpH = (pH - pHout0) / dpH
                 dfCO2outdpH = (fCO2 - fCO2out0) / dpH
                 dpCO2outdpH = (pCO2 - pCO2out0) / dpH
@@ -3758,7 +3885,7 @@ Sub Case6Partials(pHScale%, WhichKs%, WhoseKSO4%, fORp$, Sal, K(), T(), TempCinp
                 dTCdpCO2 = (TC - TC0) / dpCO2
 '       Do at Tout, Pout
                 TempC = TempCout: Pdbar = Pdbarout
-                Call FindpHfCO2fromTATC(pHScale%, WhichKs%, WhoseKSO4%, TA, TC, Sal, K(), T(), TempC, Pdbar, pH, fCO2, pCO2)
+                Call FindpHfCO2fromTATC(pHScale%, WhichKs%, WhoseKSO4%, WhoseKF%, TA, TC, Sal, K(), T(), TempC, Pdbar, pH, fCO2, pCO2)
                 dpHoutdfCO2 = (pH - pHout0) / dfCO2
                 dpHoutdpCO2 = (pH - pHout0) / dpCO2
                 dfCO2outdfCO2 = (fCO2 - fCO2out0) / dfCO2
@@ -3777,7 +3904,7 @@ Sub Case6Partials(pHScale%, WhichKs%, WhoseKSO4%, fORp$, Sal, K(), T(), TempCinp
                 dTAdSal = (TA - TA0) / dSal
 '       Do at Tout, Pout
                 TempC = TempCout: Pdbar = Pdbarout
-                Call FindpHfCO2fromTATC(pHScale%, WhichKs%, WhoseKSO4%, TA, TC, Sal, K(), T(), TempC, Pdbar, pH, fCO2, pCO2)
+                Call FindpHfCO2fromTATC(pHScale%, WhichKs%, WhoseKSO4%, WhoseKF%, TA, TC, Sal, K(), T(), TempC, Pdbar, pH, fCO2, pCO2)
                 dpHoutdSal = (pH - pHout0) / dSal
                 dfCO2outdSal = (fCO2 - fCO2out0) / dSal
                 dpCO2outdSal = (pCO2 - pCO2out0) / dSal
@@ -3795,7 +3922,7 @@ Sub Case6Partials(pHScale%, WhichKs%, WhoseKSO4%, fORp$, Sal, K(), T(), TempCinp
                 dTCdTempCinp = (TC - TC0) / dTempC
 '       Do at Tout, Pout
                 TempC = TempCout: Pdbar = Pdbarout
-                Call FindpHfCO2fromTATC(pHScale%, WhichKs%, WhoseKSO4%, TA, TC, Sal, K(), T(), TempC, Pdbar, pH, fCO2, pCO2)
+                Call FindpHfCO2fromTATC(pHScale%, WhichKs%, WhoseKSO4%, WhoseKF%, TA, TC, Sal, K(), T(), TempC, Pdbar, pH, fCO2, pCO2)
                 dpHoutdTempCinp = (pH - pHout0) / dTempC
                 dfCO2outdTempCinp = (fCO2 - fCO2out0) / dTempC
                 dpCO2outdTempCinp = (pCO2 - pCO2out0) / dTempC
@@ -3810,7 +3937,7 @@ Sub Case6Partials(pHScale%, WhichKs%, WhoseKSO4%, fORp$, Sal, K(), T(), TempCinp
                 dTCdPdbarinp = (TC - TC0) / dPdbar
 '       Do at Tout, Pout
                 TempC = TempCout: Pdbar = Pdbarout
-                Call FindpHfCO2fromTATC(pHScale%, WhichKs%, WhoseKSO4%, TA, TC, Sal, K(), T(), TempC, Pdbar, pH, fCO2, pCO2)
+                Call FindpHfCO2fromTATC(pHScale%, WhichKs%, WhoseKSO4%, WhoseKF%, TA, TC, Sal, K(), T(), TempC, Pdbar, pH, fCO2, pCO2)
                 dpHoutdPdbarinp = (pH - pHout0) / dPdbar
                 dfCO2outdPdbarinp = (fCO2 - fCO2out0) / dPdbar
                 dpCO2outdPdbarinp = (pCO2 - pCO2out0) / dPdbar
@@ -3826,7 +3953,7 @@ Sub Case6Partials(pHScale%, WhichKs%, WhoseKSO4%, fORp$, Sal, K(), T(), TempCinp
                 dTCpcdK0 = (TC - TC0) / pcdK0
 '       Do at Tout, Pout
                 TempC = TempCout: Pdbar = Pdbarout
-                Call FindpHfCO2fromTATC(pHScale%, WhichKs%, WhoseKSO4%, TA, TC, Sal, K(), T(), TempC, Pdbar, pH, fCO2, pCO2)
+                Call FindpHfCO2fromTATC(pHScale%, WhichKs%, WhoseKSO4%, WhoseKF%, TA, TC, Sal, K(), T(), TempC, Pdbar, pH, fCO2, pCO2)
                 dpHoutpcdK0 = (pH - pHout0) / pcdK0
                 dfCO2outpcdK0 = (fCO2 - fCO2out0) / pcdK0
                 dpCO2outpcdK0 = (pCO2 - pCO2out0) / pcdK0
@@ -3842,7 +3969,7 @@ Sub Case6Partials(pHScale%, WhichKs%, WhoseKSO4%, fORp$, Sal, K(), T(), TempCinp
                 dTCpcdK1 = (TC - TC0) / pcdK1
 '       Do at Tout, Pout
                 TempC = TempCout: Pdbar = Pdbarout
-                Call FindpHfCO2fromTATC(pHScale%, WhichKs%, WhoseKSO4%, TA, TC, Sal, K(), T(), TempC, Pdbar, pH, fCO2, pCO2)
+                Call FindpHfCO2fromTATC(pHScale%, WhichKs%, WhoseKSO4%, WhoseKF%, TA, TC, Sal, K(), T(), TempC, Pdbar, pH, fCO2, pCO2)
                 dpHoutpcdK1 = (pH - pHout0) / pcdK1
                 dfCO2outpcdK1 = (fCO2 - fCO2out0) / pcdK1
                 dpCO2outpcdK1 = (pCO2 - pCO2out0) / pcdK1
@@ -3858,7 +3985,7 @@ Sub Case6Partials(pHScale%, WhichKs%, WhoseKSO4%, fORp$, Sal, K(), T(), TempCinp
                 dTCpcdK2 = (TC - TC0) / pcdK2
 '       Do at Tout, Pout
                 TempC = TempCout: Pdbar = Pdbarout
-                Call FindpHfCO2fromTATC(pHScale%, WhichKs%, WhoseKSO4%, TA, TC, Sal, K(), T(), TempC, Pdbar, pH, fCO2, pCO2)
+                Call FindpHfCO2fromTATC(pHScale%, WhichKs%, WhoseKSO4%, WhoseKF%, TA, TC, Sal, K(), T(), TempC, Pdbar, pH, fCO2, pCO2)
                 dpHoutpcdK2 = (pH - pHout0) / pcdK2
                 dfCO2outpcdK2 = (fCO2 - fCO2out0) / pcdK2
                 dpCO2outpcdK2 = (pCO2 - pCO2out0) / pcdK2
@@ -3894,7 +4021,7 @@ PrintPartialsForCase6:
 Exit Sub
 '****************************************************************************
 GetConstantsforCase6Partials:
-        Call Constants(pHScale%, WhichKs%, WhoseKSO4%, Sal, TempC, Pdbar, K0, K(), T(), fH, FugFac, VPFac)
+        Call Constants(pHScale%, WhichKs%, WhoseKSO4%, WhoseKF%, Sal, TempC, Pdbar, K0, K(), T(), fH, FugFac, VPFac)
         K1 = K(1): K2 = K(2)
 Return
 CalculateStuffForCase6Partials:
@@ -4066,13 +4193,14 @@ CalculateOmegasHere:
         OmegaAr = CO3 * Ca / KAr: 'dimensionless
 End Sub
 
-Sub FindpHfCO2fromTATC(pHScale%, WhichKs%, WhoseKSO4%, TA, TC, Sal, K(), T(), TempC, Pdbar, pH, fCO2, pCO2)
+Sub FindpHfCO2fromTATC(pHScale%, WhichKs%, WhoseKSO4%, WhoseKF%, TA, TC, Sal, K(), T(), TempC, Pdbar, pH, fCO2, pCO2)
 ' SUB FindpHfCO2fromTATC, version 01.02, 10-10-97, written by Ernie Lewis.
-' Inputs: pHScale%, WhichKs%, WhoseKSO4%, TA, TC, Sal, K(), T(), TempC, Pdbar
+' Inputs: pHScale%, WhichKs%, WhoseKSO4%, WhoseKF%, TA, TC, Sal, K(), T(), TempC, Pdbar
 ' Outputs: pH, fCO2, pCO2
 ' This calculates pH, fCO2, and pCO2 from TA and TC at output conditions.
 '
 '
+        Call Constants(pHScale%, WhichKs%, WhoseKSO4%, WhoseKF%, Sal, TempC, Pdbar, K0, K(), T(), fH, FugFac, VPFac)
         K1 = K(1): K2 = K(2)
 '
         If WhichKs% = 7 Then TA = TA - T(4): ' PAlk(Peng) = PAlk(Dickson) + TP
@@ -4082,9 +4210,9 @@ ICI:
         Call CalculatefCO2fromTCpH(TC, pH, K0, K1, K2, fCO2): pCO2 = fCO2 / FugFac
 End Sub
 
-Sub PrintpHspKs(pHScale%, WhichKs%, WhoseKSO4%, TA, TC, Sal, K(), T(), TempCinp, Pdbarinp, TempCout, Pdbarout)
+Sub PrintpHspKs(pHScale%, WhichKs%, WhoseKSO4%, WhoseKF%, TA, TC, Sal, K(), T(), TempCinp, Pdbarinp, TempCout, Pdbarout)
 ' SUB PrintpHspKs, version 02.01, 10-10-97, written by Ernie Lewis.
-' Inputs: pHScale%, WhichKs%, WhoseKSO4%, TA, TC, Sal, K(), T()
+' Inputs: pHScale%, WhichKs%, WhoseKSO4%, WhoseKF%, TA, TC, Sal, K(), T()
 ' Inputs:  TempCinp, Pdbarinp, TempCout, Pdbarout
 ' Outputs: none
 ' This calculates and prints the pH on all scales, and pK1, pK2, pKW, and pKB
@@ -4144,7 +4272,7 @@ FindpHsAndpKsAtOutputConditions:
 Exit Sub
 '****************************************************************************
 FindpHspKs:
-        Call Constants(pHScale%, WhichKs%, WhoseKSO4%, Sal, TempC, Pdbar, K0, K(), T(), fH, FugFac, VPFac)
+        Call Constants(pHScale%, WhichKs%, WhoseKSO4%, WhoseKF%, Sal, TempC, Pdbar, K0, K(), T(), fH, FugFac, VPFac)
         K1 = K(1): K2 = K(2)
         If WhichKs% = 7 Then TA = TA - T(4): ' PAlk(Peng) = PAlk(Dickson) + TP
         Call CalculatepHfromTATC(TA, TC, K(), T(), pH)
@@ -4228,8 +4356,3 @@ GetfCO2:
         Call CalculatefCO2fromTCpH(TC, pH, K0, K1, K2, fCO2)
 Return
 End Sub
-
-
-
-
-

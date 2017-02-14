@@ -10,7 +10,7 @@ End Sub
 Private Sub Worksheet_SelectionChange(ByVal Target As Range)
 Dim r1 As Range
 
-
+If InStr(Target.Worksheet.Name, "DATA") < 0 Then Exit Sub
 If (Target.Address <> "$A$1:$N$1" And Target.Address <> "$O$3" And Target.Address <> "$O$5:$O$7") Then Exit Sub
 
 If Target.Address = "$A$1:$N$1" Then
