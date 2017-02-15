@@ -515,7 +515,17 @@ CalculateOtherStuffAtInputConditions:
 '****************************************************************************
 CalculatepHfCO2AtOutputConditions:
     TempC = inoutconditions(6): Pdbar = inoutconditions(7)
-    If TempC = -9 Or TempC = -999 Or Pdbar = -9 Or Pdbar = -999 Then GoTo endcalculate
+    
+    ' If output conditions are not defined
+    If TempC = -9 Or TempC = -999 Or Pdbar = -9 Or Pdbar = -999 Then
+        results(24) = -999: results(25) = -999
+        ' Reset result
+        For i = 1 To 14
+           results(25 + i) = 0
+        Next i
+        GoTo endcalculate
+    End If
+    
     ' if input temp and salinity are conforming to EOS-10
     If (WhichEOS% = 2) Then
         ' Given TempC is Conservative temperature
@@ -4356,3 +4366,4 @@ GetfCO2:
         Call CalculatefCO2fromTCpH(TC, pH, K0, K1, K2, fCO2)
 Return
 End Sub
+

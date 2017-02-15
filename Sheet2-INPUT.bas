@@ -7,7 +7,7 @@ Option Base 1
 
 Private Sub Worksheet_SelectionChange(ByVal Target As Range)
 
-If Target.Column > 5 Or Target.Row = 1 Or (Target.Row > 1 + UBound(kopt) And Target.Column = 1) _
+If Target.Column > 6 Or Target.Row = 1 Or (Target.Row > 1 + UBound(kopt) And Target.Column = 1) _
                                 Or (Target.Row > 1 + UBound(khso4opt) And Target.Column = 2) _
                                 Or (Target.Row > 1 + UBound(kfopt) And Target.Column = 3) _
                                 Or (Target.Row > 1 + UBound(phopt) And Target.Column = 4) _
@@ -77,5 +77,5 @@ End With
     
 
 End Sub
-   
-   
+
+

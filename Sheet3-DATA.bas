@@ -17,7 +17,7 @@ If Target.Address = "$A$1:$N$1" Then
    Call main
 ElseIf Target.Address = "$O$3" Then
    answer = MsgBox("Are you sure you want to clear the data ?", vbYesNo + vbQuestion + vbDefaultButton2, "Caution")
-   Set r1 = Range(Cells(4, "A"), Cells(65356, "O"))
+   Set r1 = Range(Cells(4, "A"), Cells(65356, "N"))
    If answer = vbYes Then r1.ClearContents
 Else
    answer = MsgBox("Are you sure you want to clear the results ?", vbYesNo + vbQuestion + vbDefaultButton2, "Caution")
