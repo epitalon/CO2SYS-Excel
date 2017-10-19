@@ -20,7 +20,6 @@ Private Sub Workbook_Open()
         InitiateOK = False
         Call Initiate(True)
         Sheets("INPUT").Activate
-
 End Sub
 
 

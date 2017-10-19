@@ -11,7 +11,7 @@
 ' !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 ' PROGRAMMER'S NOTE: all logs are base e, any log10 is written log()/log(10)
 ' PROGRAMMER'S NOTE: all temps are deg C unless otherwise noted -
-'       temps in deg K only occur in the subs and are expicitly noted
+'        temps in deg K only occur in the subs and are expicitly noted
 ' PROGRAMMER'S NOTE: partials are calculated numerically and there will be
 '       some roundoff error involved in this, but it should be small
 ' PROGRAMMER'S NOTE: pCO2 and fCO2 are both referenced to wet air. In an
@@ -37,31 +37,40 @@ Public Const OutputNum = 10000
 Public Const numvar = 7 ' all input variables (S,Tin,Pin,Phos, Si, Tout, Pout)
 Public Const numaux = numvar ' all aux output (HCO3 to last Alk)
 Public LF   'Linefeed
-Public mess(1 To 14) As String
+Public mess(1 To 16) As String
 Public K(10), K0  ' these are the equilibrium constants
 Public T(5):  ' these are the amounts of the various species
 Public FugFac
-Dim datar As Range, varinpr As Range
-Public param(5) As Single, VarInp(numvar) As Single, parami(2) As Integer
+Dim datar As Range, varinpr As Range, locationr As Range
+Public param(5) As Double, VarInp(9) As Double, parami(2) As Integer
 Dim VarTemp(11) As Double, VarTempF(11) As String
-Dim SubFlagT As String, SubFlag(numvar - 4) As String, SubFlagok As Integer
-
-'Dim datac(OutputNum, 40), datacf(OutputNum, 40) As String ', datacC(OutputNum, 40) As Long
-Dim datac(OutputNum, 2 * (numvar + numaux) - 2 + 3 * (5 + 4 + 1) + 2), datacf(OutputNum, 2 * (numvar + numaux) - 2 + 3 * (5 + 4 + 1) + 2) ', datacC(OutputNum) As Integer
-Public WhichKsDefault%, WhoseKSO4Default%, WhoseKFDefault%, pHScaleDefault%, WhichTBDefault%
-Public WhichKs%, WhoseKSO4%, WhoseKF%, pHScale%, WhichTB%
-Public phopt(4) As String, kopt(14) As String, khso4opt(2) As String, kfopt(2) As String, tbopt(2) As String
+Dim SubFlagT As String, SubFlag(3) As String, SubFlagok As Integer
+Public SheetError As Worksheet
+'Public datac(OutputNum, 2 * (numvar + numaux) - 2 + 3 * (5 + 4 + 1) + 2)
+'Public datacf(OutputNum, 2 * (numvar + numaux) - 2 + 3 * (5 + 4 + 1) + 2)
+Public datac(OutputNum, 42)
+Public datacf(OutputNum, 42)
+Public errorc(OutputNum, 33)
+Public WhichKsDefault%, WhoseKSO4Default%, WhoseKFDefault%, pHScaleDefault%, WhichTBDefault%, WhichEOSDefault%
+Public WhichKs%, WhoseKSO4%, WhoseKF%, pHScale%, WhichTB%, WhichEOS%
+Public phopt(4) As String, kopt(14) As String, khso4opt(2) As String, kfopt(2) As String, tbopt(2) As String, EOSopt(2) As String
 Public InitiateOK As Boolean
+
+Public PertK As String         ' Id of perturbed K for computing derivatives
+Public Perturb  As Double      ' perturbation
+
+Declare Function gsw_t_from_ct Lib "gsw.dll" (ByVal SA As Double, ByVal CT As Double, ByVal p As Double) As Double
+Declare Function gsw_sp_from_sa Lib "gsw.dll" (ByVal SA As Double, ByVal p As Double, ByVal lon As Double, ByVal lat As Double) As Double
 
 '****************************************************************************
 '****************************************************************************
 Sub main()
-
-If InStr(1, Application.OperatingSystem, "macintosh", vbTextCompare) > 0 Then
-  LF = 13
-Else
-  LF = 10
-End If
+  
+  If InStr(1, Application.OperatingSystem, "macintosh", vbTextCompare) > 0 Then
+    LF = 13
+  Else
+    LF = 10
+  End If
 
   If Not InitiateOK Then
     Call Initiate(False)
@@ -70,7 +79,7 @@ End If
   End If
   
   Sheets("DATA").Activate
-  Range("$A$3").Select: pt = 1: pt2 = 1: pt3 = 0
+  Range("$A$3").Select: pt = 1: Pt2 = 1: Pt3 = 0
   
   If ActiveCell.Value <> "Salinity" Then
      answer = MsgBox("Sheet Layout was Changed...Contact CDIAC", vbOKOnly + vbCritical, "ERROR")
@@ -87,357 +96,956 @@ End If
      SkipAData = vbYes
   End If
   
- ' g3init = Range("$G$3").Value
- ' f3init = Range("$F$3").Value
-  
-settingc = 7 + numvar
-If pt = 1 Then
-   For i = 2 To UBound(kopt) + 1
-      If Sheets("INPUT").Cells(i, 1).Interior.ColorIndex = 36 Then WhichKs% = i - 1
-   Next i
-   For i = 2 To UBound(khso4opt) + 1
-      If Sheets("INPUT").Cells(i, 2).Interior.ColorIndex = 36 Then WhoseKSO4% = i - 1
-   Next i
-   For i = 2 To UBound(kfopt) + 1
-      If Sheets("INPUT").Cells(i, 3).Interior.ColorIndex = 36 Then WhoseKF% = i - 1
-   Next i
-   For i = 2 To UBound(phopt) + 1
-      If Sheets("INPUT").Cells(i, 4).Interior.ColorIndex = 36 Then pHScale% = i - 1
-   Next i
-   For i = 2 To UBound(tbopt) + 1
-      If Sheets("INPUT").Cells(i, 5).Interior.ColorIndex = 36 Then WhichTB% = i - 1
-   Next i
-
- ' pHScale% = Sheets("INPUT").phcombo.ListIndex + 1
- ' WhichKs% = Sheets("INPUT").kcombo.ListIndex + 1
- ' WhoseKSO4% = Sheets("INPUT").khso4combo.ListIndex + 1
-  ActiveCell.Offset(1, settingc).Value = phopt(pHScale%)
-  ActiveCell.Offset(3, settingc).Value = kopt(WhichKs%)
-  ActiveCell.Offset(5, settingc).Value = khso4opt(WhoseKSO4%)
-  ActiveCell.Offset(7, settingc).Value = kfopt(WhoseKF%)
-  ActiveCell.Offset(9, settingc).Value = tbopt(WhichTB%)
-End If
-
-startofvar = 0: endofvar = numvar - 1: startofdata = numvar: endofdata = numvar + 4
-Set varinpr = Range(ActiveCell.Offset(pt, startofvar), ActiveCell.Offset(pt, endofvar))
-Set datar = Range(ActiveCell.Offset(pt, startofdata), ActiveCell.Offset(pt, endofdata))
-stilldata = WorksheetFunction.CountA(datar) + WorksheetFunction.CountA(varinpr)
-
-Erase datac ' Each element set to 0.
-SubFlag(1) = "Pressure Set to 0. ": SubFlag(2) = "Phosp Set to 0. ": SubFlag(3) = "Si Set to 0. "
-
-Do While (stilldata <> 0) 'loop for each point
-       SubFlagok = 0: SubFlagT = ""
-       If WorksheetFunction.CountA(datar) = 0 Then GoTo endmain
-       
-       kk = 1: parami(1) = 0: parami(2) = 0
-       For i = 1 To numvar  'inputs var (S, Tin, Pin, Si, Ph,Tout,Pout) into VarInp and Data (TA, TC, pH, pCO2) into param
-                If i <= 5 Then
-                      param(i) = datar.Value2(1, i)
-                      If datar.Value2(1, i) <> Empty And datar.Value2(1, i) > 0 And kk <= 2 Then ' And kk <= 2
-                             parami(kk) = i: kk = kk + 1
-                             'If param(i) < 0 Then GoTo endmain
-                      End If
-                End If
-                VarInp(i) = varinpr.Value2(1, i)
-                
-                If (VarInp(i) = -9 Or VarInp(i) = -999) Then
-                'if Tout, Pout = -999 then output conditions calculations will be skipped - see below in code
-                      If (i <= 2) Then 'if S or T = -999
-                         GoTo endmain
-                      ElseIf (i <= numvar - 2) Then 'if Press, P or Si = -999 then =0
-                         VarInp(i) = 0
-                         SubFlagok = 1
-                         If InStr(SubFlagT, SubFlag(i - 2)) = 0 Then SubFlagT = SubFlagT + SubFlag(i - 2)
-                     End If
-                End If
+  settingc = 9 + numvar
+  If pt = 1 Then
+       For i = 2 To UBound(kopt) + 1
+          If Sheets("INPUT").Cells(i, 1).Interior.ColorIndex = 36 Then WhichKs% = i - 1
        Next i
-       If kk <= 2 Then GoTo endmain ' couldn't find 2 non-negative CO2 parameters
-       
-       Sal = VarInp(1): TempC = VarInp(2): Pdbar = VarInp(3)
-       If WhichKs% = 8 Or WhichKs% = 6 Then   'GEOSECS and WATER
-          VarInp(4) = 0: VarInp(5) = 0  'TP and TSi =0
-          If WhichKs% = 8 Then  'Pure Water
-             Sal = 0!
-          End If
-       Else
-          VarInp(4) = VarInp(4) / 1000000!: VarInp(5) = VarInp(5) / 1000000!:
-       End If
-       T(4) = VarInp(4): T(5) = VarInp(5)
-       Call Constants(pHScale%, WhichKs%, WhoseKSO4%, WhoseKF%, Sal, TempC, Pdbar, K0, K(), T(), fH, FugFac, VPFac)
-       K1 = K(1): K2 = K(2)
-      ICase% = 10 * parami(1) + parami(2)
-       
-      If parami(1) = 4 Or parami(2) = 4 Then
-           param(5) = param(4) / FugFac
-      ElseIf parami(1) = 5 Or parami(2) = 5 Then
-           param(4) = param(5) * FugFac
-       End If
-      For i = 1 To 5
-          If i = 3 Then i = 4
-          param(i) = param(i) / 1000000!
-      Next i
-       
-CalculateOtherParamsAtInputConditions:
-        Select Case ICase%
-        Case 12: ' input TA, TC
-                TA = param(1): TC = param(2)
-                Call FindpHfCO2fromTATC(pHScale%, WhichKs%, WhoseKSO4%, WhoseKF%, TA, TC, Sal, K(), T(), TempC, Pdbar, pH, fCO2, pCO2)
-                param(3) = pH: param(4) = fCO2: param(5) = param(4) / FugFac
-        Case 13: ' input TA, pH
-                TA = param(1): pH = param(3)
-                If WhichKs% = 7 Then TA = TA - T(4): ' PAlk(Peng) = PAlk(Dickson) + TP
-                Call CalculateTCfromTApH(TA, pH, K(), T(), TC)
-                param(2) = TC
-                If WhichKs% = 7 Then TA = TA + T(4): ' PAlk(Peng) = PAlk(Dickson) + TP
-                Call CalculatefCO2fromTCpH(TC, pH, K0, K1, K2, fCO2): pCO2 = fCO2 / FugFac
-                param(4) = fCO2: param(5) = pCO2
-        Case 14, 15: ' input TA, fCO2 or pCO2
-                TA = param(1)
-                If ICase% = 14 Then
-                    fCO2 = param(4): pCO2 = fCO2 / FugFac
-                Else
-                    pCO2 = param(5): fCO2 = pCO2 * FugFac
-                End If
-                If WhichKs% = 7 Then TA = TA - T(4): ' PAlk(Peng) = PAlk(Dickson) + TP
-                Call CalculatepHfromTAfCO2(TA, fCO2, K0, K(), T(), pH)
-                Call CalculateTCfromTApH(TA, pH, K(), T(), TC)
-                If WhichKs% = 7 Then TA = TA + T(4): ' PAlk(Peng) = PAlk(Dickson) + TP
-                param(3) = pH: param(2) = TC
-        Case 23: ' input TC, pH
-                TC = param(2): pH = param(3)
-                Call CalculateTAfromTCpH(TC, pH, K(), T(), TA)
-                If WhichKs% = 7 Then TA = TA + T(4): ' PAlk(Peng) = PAlk(Dickson) + TP
-                Call CalculatefCO2fromTCpH(TC, pH, K0, K1, K2, fCO2): pCO2 = fCO2 / FugFac
-                param(1) = TA: param(4) = fCO2: param(5) = pCO2
-        Case 24, 25: ' input TC, fCO2 or pCO2
-                TC = param(2)
-                If ICase% = 24 Then
-                   fCO2 = param(4): pCO2 = fCO2 / FugFac
-                Else
-                   pCO2 = param(5): fCO2 = pCO2 * FugFac
-                End If
-                Call CalculatepHfromTCfCO2(TC, fCO2, K0, K1, K2, pH)
-                If pH = -999! Then
-                     param(1) = -999! / 1000000!
-                Else
-                   Call CalculateTAfromTCpH(TC, pH, K(), T(), TA)
-                   If WhichKs% = 7 Then TA = TA + T(4): ' PAlk(Peng) = PAlk(Dickson) + TP
-                End If
-                param(1) = TA: param(3) = pH
-        Case 34, 35: ' input pH, fCO2 or pCO2
-                If ICase% = 35 Then
-                   pCO2 = param(5): fCO2 = pCO2 * FugFac
-                Else
-                   fCO2 = param(4): pCO2 = fCO2 / FugFac
-                End If
-                pH = param(3)
-                Call CalculateTCfrompHfCO2(pH, fCO2, K0, K1, K2, TC)
-                Call CalculateTAfromTCpH(TC, pH, K(), T(), TA)
-                If WhichKs% = 7 Then TA = TA + T(4): ' PAlk(Peng) = PAlk(Dickson) + TP
-                param(2) = TC: param(1) = TA
-        Case Else
-                GoTo endmain
-        End Select
- '----------------------------- 'Print Session #1 : Input results------------------------------------
+       For i = 2 To UBound(khso4opt) + 1
+          If Sheets("INPUT").Cells(i, 2).Interior.ColorIndex = 36 Then WhoseKSO4% = i - 1
+       Next i
+       For i = 2 To UBound(kfopt) + 1
+          If Sheets("INPUT").Cells(i, 3).Interior.ColorIndex = 36 Then WhoseKF% = i - 1
+       Next i
+       For i = 2 To UBound(phopt) + 1
+          If Sheets("INPUT").Cells(i, 4).Interior.ColorIndex = 36 Then pHScale% = i - 1
+       Next i
+       For i = 2 To UBound(tbopt) + 1
+          If Sheets("INPUT").Cells(i, 5).Interior.ColorIndex = 36 Then WhichTB% = i - 1
+       Next i
+       For i = 2 To UBound(EOSopt) + 1
+          If Sheets("INPUT").Cells(i, 5).Interior.ColorIndex = 36 Then WhichEOS% = i - 1
+       Next i
     
-    For i = 1 To numvar - 2
-       If i <= 3 Then datac(pt2, i) = Round(VarInp(i), 3) Else datac(pt2, i) = Round(VarInp(i) * 1000000, 3)
-    Next i
+     ' Copy options in sheet DATA
+      ActiveCell.Offset(1, settingc).Value = phopt(pHScale%)
+      ActiveCell.Offset(3, settingc).Value = kopt(WhichKs%)
+      ActiveCell.Offset(5, settingc).Value = khso4opt(WhoseKSO4%)
+      ActiveCell.Offset(7, settingc).Value = kfopt(WhoseKF%)
+      ActiveCell.Offset(9, settingc).Value = tbopt(WhichTB%)
+      ActiveCell.Offset(11, settingc).Value = EOSopt(WhichEOS%)
+  End If
+  
+  startofvar = 0: endofvar = numvar - 1: startofdata = numvar: endofdata = numvar + 4
+  startoflocat = numvar + 5: endoflocat = numvar + 6
+  Set varinpr = Range(ActiveCell.Offset(pt, startofvar), ActiveCell.Offset(pt, endofvar))
+  Set datar = Range(ActiveCell.Offset(pt, startofdata), ActiveCell.Offset(pt, endofdata))
+  Set locationr = Range(ActiveCell.Offset(pt, startoflocat), ActiveCell.Offset(pt, endoflocat))
+  stilldata = WorksheetFunction.CountA(datar) + WorksheetFunction.CountA(varinpr) + WorksheetFunction.CountA(locationr)
+
+  Erase datac ' Each element set to 0.
+  Erase errorc
+  SubFlag(1) = "Pressure Set to 0. ": SubFlag(2) = "Phosp Set to 0. ": SubFlag(3) = "Si Set to 0. "
+
+  ' Read chosen error for dissociation constants
+  ' user may leave them empty, in which case, they will be set to zero
+  Dim epK(8) As Double
+  Call ReadError_pK(epK())
+  
+  Do While (stilldata <> 0) 'loop for each point
+        Dim results(40) As Double
+        Dim formats(40) As String
+        Dim errors(42) As Double
+        
+        If WorksheetFunction.CountA(datar) <> 0 Then
+            ' Read one line of data
+            Call ReadDataLine
+            'if S and T and two parameters are defined
+            If VarInp(1) <> -999 And VarInp(2) <> 999 And parami(1) <> -999 And parami(2) <> -999 Then
+                ' Process data
+                Call Calculate(VarInp(), param(), SkipAData, results(), formats())
+                ' Store results
+                For i = 1 To 40
+                   datac(Pt2, i) = results(i)
+                   datacf(Pt2, i) = formats(i)
+                Next i
+                ' Mention if some input set to 0
+                If SubFlagok = 1 Then
+                   datac(Pt2, 42) = SubFlagT
+                End If
+            End If
+            
+            ' Check if standard errors are given
+            Set error_r = SheetError.Range(SheetError.Cells(pt + 3, 1), SheetError.Cells(pt + 3, 9))
+            ' If standard errors are given at currennt data line
+            If WorksheetFunction.CountA(error_r) <> 0 Then
+                ' Read given standard errors
+                Dim eVar1 As Double, eVar2 As Double, eSal As Double, eTemp As Double, eSil As Double, ePhos As Double, r As Double
+                Call ReaderrorLine(pt, eVar1, eVar2, eSal, eTemp, eSil, ePhos, r)
+                ' Process standard errors
+                Call CalculateErrors(SkipAData, eVar1, eVar2, eSal, eTemp, eSil, ePhos, r, epK(), errors())
+                ' Copy computed errors at input conditions
+                For i = 1 To 17
+                   errorc(Pt2, i) = errors(i + 5)
+                Next i
+                ' Copy computed errors at output conditions
+                ' Note: errorc has one gap column between input and output conditions
+                For i = 1 To 15
+                   errorc(Pt2, i + 18) = errors(i + 25)
+                Next i
+            End If
+        End If
        
+       ' Update sheet contents with results
+       Application.StatusBar = "Points Calculated: Total " + Str(pt) + "  This Batch " + Str(Pt2)
+       DoEvents
+       pt = pt + 1: Pt2 = Pt2 + 1
+       If (Pt2 > OutputNum) Then
+           Application.StatusBar = "Points Calculated: Total " + Str(pt) + "  This Batch " + Str(Pt2) + ".  Formating Data... "
+           Range(ActiveCell.Offset(Pt3 + 1, 18), ActiveCell.Offset(Pt3 + Pt2 - 1, 59)).Value = datac
+           Range(ActiveCell.Offset(Pt3 + 1, 18), ActiveCell.Offset(Pt3 + Pt2 - 1, 59)).NumberFormat = datacf
+           For i = Pt3 + 1 To Pt3 + Pt2 - 1
+              If datac(i, 42) <> "" Then
+                 ' Setting color by program makes the total number of row impssible to decrease !
+                 ' Range(ActiveCell.Offset(i, 16), ActiveCell.Offset(i, 55)).Font.ColorIndex = 3
+              End If
+           Next i
+           Erase datac
+           If Not IsEmpty(errorc) Then
+              SheetError.Range(SheetError.Cells(Pt3 + 4, 15), SheetError.Cells(Pt3 + Pt2 + 2, 47)).Value = errorc
+              Erase errorc
+           End If
+           Pt3 = Pt3 + Pt2 - 1
+           Pt2 = 1
+       End If
+       Set varinpr = Range(ActiveCell.Offset(pt, startofvar), ActiveCell.Offset(pt, endofvar))
+       Set datar = Range(ActiveCell.Offset(pt, startofdata), ActiveCell.Offset(pt, endofdata))
+       Set locationr = Range(ActiveCell.Offset(pt, startoflocat), ActiveCell.Offset(pt, endoflocat))
+       stilldata = WorksheetFunction.CountA(datar) + WorksheetFunction.CountA(varinpr) + WorksheetFunction.CountA(locationr)
+       If (stilldata = 0) Then
+           Application.StatusBar = "Points Calculated: Total " + Str(pt) + "  This Batch " + Str(Pt2) + ".  Formating Data... "
+           Range(ActiveCell.Offset(Pt3 + 1, 18), ActiveCell.Offset(Pt3 + Pt2 - 1, 59)).Value = datac
+           Range(ActiveCell.Offset(Pt3 + 1, 18), ActiveCell.Offset(Pt3 + Pt2 - 1, 59)).NumberFormat = datacf
+           For i = Pt3 + 1 To Pt3 + Pt2 - 1
+              If datac(i, 42) <> "" Then
+                 ' Setting color by program makes the total number of row impossible to decrease !
+                 ' Range(ActiveCell.Offset(i, 18), ActiveCell.Offset(i, 59)).Font.ColorIndex = 3
+              End If
+           Next i
+           If Not IsEmpty(errorc) Then
+              SheetError.Range(SheetError.Cells(Pt3 + 4, 15), SheetError.Cells(Pt3 + Pt2 + 2, 47)).Value = errorc
+           End If
+       End If
+
+  Loop 'end of do while stilldata
+
+  Application.StatusBar = ""
+End Sub
+
+Sub ReadError_pK(epK() As Double)
+' Inputs: global variables datar, varinpr
+' Outputs: epK(7)
+' This reads chosen errors for constants pK and TB on column "L" of sheet ERROR
+  
+  ' Read chosen error for constants pK
+  Set currentCell = Worksheets("ERROR").Range("M5")
+  For i = 1 To 8
+      epK(i) = currentCell.Value
+      Set currentCell = currentCell.Offset(1, 0)
+  Next i
+End Sub
+
+Sub ReadDataLine()
+' Inputs: global variables datar, varinpr
+' Outputs: global variables  param(), parami(), VarInp(), SubFlagok, SubFlagT
+' This reads and parses one line of sheet "DATA"
+
+    ' Read line
+     SubFlagok = 0: SubFlagT = ""
+     kk = 1: parami(1) = -999: parami(2) = -999
+     For i = 1 To numvar - 2  'inputs Data (TA, TC, pH, pCO2) into param
+        param(i) = datar.Value2(1, i)
+        If datar.Value2(1, i) <> Empty And kk <= 2 Then  ' And kk <= 2
+           parami(kk) = i: kk = kk + 1
+        End If
+     Next i
+     For i = 1 To numvar  'inputs var (S, T, P, Si, Ph) into VarInp
+        VarInp(i) = varinpr.Value2(1, i)
+        If (IsEmpty(varinpr.Cells(1, i)) Or VarInp(i) = -9 Or VarInp(i) = -999) Then
+           VarInp(i) = -999
+           'if Press, P or Si = -999 then =0
+           If i >= 3 And i <= 5 Then
+              VarInp(i) = 0
+              SubFlagok = 1
+              If InStr(SubFlagT, SubFlag(i - 2)) = 0 Then SubFlagT = SubFlagT + SubFlag(i - 2)
+           End If
+        End If
+     Next i
+     If WhichEOS% = 2 Then
+        'append location (long, lat) to VarInp
+        lon = locationr.Value2(1, 1)
+        lat = locationr.Value2(1, 2)
+        If IsEmpty(lon) Or IsEmpty(lat) Then
+           ' Select mid equatorial Atlantic (25 degrees West, 0 degrees North)
+           VarInp(8) = -25
+           VarInp(9) = 0
+        Else
+           VarInp(8) = locationr.Value2(1, 1) 'lon
+           VarInp(9) = locationr.Value2(1, 2) 'lat
+        End If
+     End If
+
+    ' Special cases
+    If WhichKs% = 8 Or WhichKs% = 6 Then   'GEOSECS and WATER
+       VarInp(4) = 0: VarInp(5) = 0  'TP and TSi =0
+       If WhichKs% = 8 Then  'Pure Water
+          VarInp(1) = 0!
+       End If
+    Else
+       VarInp(4) = VarInp(4) / 1000000#: VarInp(5) = VarInp(5) / 1000000#:
+    End If
+    
+    ' Change units
     For i = 1 To 5
-       datac(pt2, numvar - 2 + i) = Round(param(i) * 1000000, 3)
-       If i = 3 Then datac(pt2, numvar - 2 + i) = Round(param(i), 3)
+        If i = 3 Then i = 4
+        param(i) = param(i) / 1000000#
     Next i
+       
+End Sub
+
+Sub ReaderrorLine(pt, eVar1 As Double, eVar2 As Double, eSal As Double, eTemp As Double, eSil As Double, ePhos As Double, r As Double)
+' Inputs:
+'  - pt   :  line number
+'  - global variable parami()  :  indices of chosen input pair of variables
+'
+' Outputs: eVar1, eVar2, eSal, eTemp, eSil, ePhos, r
+' This reads and parses one line of sheet "ERROR"
+
+    eSal = SheetError.Cells(pt + 3, 1).Value
+    eTemp = SheetError.Cells(pt + 3, 2).Value
+    ePhos = SheetError.Cells(pt + 3, 3).Value / 1000000#    ' Convert to mol/Kg SW
+    eSil = SheetError.Cells(pt + 3, 4).Value / 1000000#
+    r = SheetError.Cells(pt + 3, 10).Value
     
-    'datac(pt2, 1) = VarInp(1): datac(pt2, 2) = VarInp(2): datac(pt2, 3) = VarInp(3)
-   ' datac(pt2, 4) = VarInp(4) * 1000000: datac(pt2, 5) = VarInp(5) * 1000000:    datac(pt2, 6) = VarInp(6) * 1000000: datac(pt2, 7) = VarInp(7) * 1000000'
+    indx_var1 = parami(1)
+    eVar1 = SheetError.Cells(pt + 3, 4 + indx_var1).Value
+    If indx_var1 <> 3 Then
+        eVar1 = eVar1 / 1000000#     ' Change units
+    End If
+    
+    indx_var2 = parami(2)
+    eVar2 = SheetError.Cells(pt + 3, 4 + indx_var2).Value
+    If indx_var2 <> 3 Then
+        eVar2 = eVar2 / 1000000#     ' Change units
+    End If
+    
+End Sub
 
-    'datac(pt2, 1 + numvar - 2) = param(1) * 1000000!: datac(pt2, 2 + numvar - 2) = param(2) * 1000000!: datac(pt2, 3 + numvar - 2) = param(3)
-   ' datac(pt2, 4 + numvar - 2) = param(4) * 1000000!: datac(pt2, 5 + numvar - 2) = param(5) * 1000000!
+Sub Calculate(inoutconditions() As Double, data() As Double, SkipAData, results() As Double, formats() As String)
+' Inputs:
+'  - inoutconditions  :  temp, sal, pressure, In and Out, total phosphorus and Silicium and, if TEOS-10, data point location
+'  - data             :  carbonate sytem values
+'  - SkipAData
+'  - global variable parami()
+' Outputs:
+'  - results(40)
+'  - formats(40)
+'
+' This makes all computations for one input row
 
+    Sal = inoutconditions(1): TempC = inoutconditions(2): Pdbar = inoutconditions(3)
+    T(4) = inoutconditions(4): T(5) = inoutconditions(5)
+    lon = inoutconditions(8): lat = inoutconditions(9)
+    
+    ' if input temp and salinity are conforming to EOS-10
+    If (WhichEOS% = 2) Then
+        ' Given Sal and TempC are Absolute Salinity and Conservative temperature
+        ' Convert them to Practical Salinity and in-situ temperature
+        Dim SP As Double              ' Practical Salinity
+        Dim isTemp As Double          ' insitu temperature
+        isTemp = gsw_t_from_ct(Sal, TempC, Pdbar)
+        SP = gsw_sp_from_sa(Sal, Pdbar, lon, lat)
+        ' If given data point location is not in ocean
+        If (SP = 9E+15) Then
+            ' Take default: mid equatorial Atlantic
+            SP = gsw_sp_from_sa(Sal, Pdbar, -25, 0)
+        End If
+        TempC = isTemp
+        Sal = SP
+    End If
+    
+    Call Constants(pHScale%, WhichKs%, WhoseKSO4%, WhoseKF%, Sal, TempC, Pdbar, K0, K(), T(), fH, FugFac, VPFac)
+     
+    ' Added by JM Epitalon
+    ' For computing derivative with respect to Kx, one has to perturb the value of one K
+    ' Requested perturbation is passed through global variables PertK and Perturb
+    If Len(PertK) <> 0 Then
+         Select Case PertK
+             Case "K0"
+                 K0 = K0 + Perturb
+             Case "K1"
+                 K(1) = K(1) + Perturb
+             Case "K2"
+                 K(2) = K(2) + Perturb
+             Case "KB"
+                 K(4) = K(4) + Perturb   ' K(4) = KB
+             Case "KW"
+                 K(3) = K(3) + Perturb   ' K(3) = KW
+             Case "BOR"
+                 T(1) = T(1) + Perturb   ' Total boron
+         End Select
+    End If
+    K1 = K(1): K2 = K(2)
+    ICase% = 10 * parami(1) + parami(2)
+     
+    ' Make sure fCO2 is available if sample has pCO2. (or reverse)
+    If parami(1) = 4 Or parami(2) = 4 Then
+         param(5) = param(4) / FugFac
+    ElseIf parami(1) = 5 Or parami(2) = 5 Then
+         param(4) = param(5) * FugFac
+    End If
+    
+CalculateOtherParamsAtInputConditions:
+    Select Case ICase%
+    Case 12: ' input TA, TC
+            TA = data(1): TC = data(2)
+            Call FindpHfCO2fromTATC(pHScale%, WhichKs%, WhoseKSO4%, WhoseKF%, TA, TC, Sal, K(), T(), TempC, Pdbar, pH, fCO2, pCO2)
+            data(3) = pH: data(4) = fCO2: data(5) = data(4) / FugFac
+    Case 13: ' input TA, pH
+            TA = data(1): pH = data(3)
+            If WhichKs% = 7 Then TA = TA - T(4): ' PAlk(Peng) = PAlk(Dickson) + TP
+            Call CalculateTCfromTApH(TA, pH, K(), T(), TC)
+            data(2) = TC
+            If WhichKs% = 7 Then TA = TA + T(4): ' PAlk(Peng) = PAlk(Dickson) + TP
+            Call CalculatefCO2fromTCpH(TC, pH, K0, K1, K2, fCO2): pCO2 = fCO2 / FugFac
+            data(4) = fCO2: data(5) = pCO2
+    Case 14, 15: ' input TA, fCO2 or pCO2
+            TA = data(1)
+            If ICase% = 14 Then
+                fCO2 = data(4): pCO2 = fCO2 / FugFac
+            Else
+                pCO2 = data(5): fCO2 = pCO2 * FugFac
+            End If
+            If WhichKs% = 7 Then TA = TA - T(4): ' PAlk(Peng) = PAlk(Dickson) + TP
+            Call CalculatepHfromTAfCO2(TA, fCO2, K0, K(), T(), pH)
+            Call CalculateTCfromTApH(TA, pH, K(), T(), TC)
+            If WhichKs% = 7 Then TA = TA + T(4): ' PAlk(Peng) = PAlk(Dickson) + TP
+            data(3) = pH: data(2) = TC
+    Case 23: ' input TC, pH
+            TC = data(2): pH = data(3)
+            Call CalculateTAfromTCpH(TC, pH, K(), T(), TA)
+            If WhichKs% = 7 Then TA = TA + T(4): ' PAlk(Peng) = PAlk(Dickson) + TP
+            Call CalculatefCO2fromTCpH(TC, pH, K0, K1, K2, fCO2): pCO2 = fCO2 / FugFac
+            data(1) = TA: data(4) = fCO2: data(5) = pCO2
+    Case 24, 25: ' input TC, fCO2 or pCO2
+            TC = data(2)
+            If ICase% = 24 Then
+               fCO2 = data(4): pCO2 = fCO2 / FugFac
+            Else
+               pCO2 = data(5): fCO2 = pCO2 * FugFac
+            End If
+            Call CalculatepHfromTCfCO2(TC, fCO2, K0, K1, K2, pH)
+            If pH = -999! Then
+                 data(1) = -999! / 1000000#
+            Else
+               Call CalculateTAfromTCpH(TC, pH, K(), T(), TA)
+               If WhichKs% = 7 Then TA = TA + T(4): ' PAlk(Peng) = PAlk(Dickson) + TP
+            End If
+            data(1) = TA: data(3) = pH
+    Case 34, 35: ' input pH, fCO2 or pCO2
+            If ICase% = 35 Then
+               pCO2 = data(5): fCO2 = pCO2 * FugFac
+            Else
+               fCO2 = data(4): pCO2 = fCO2 / FugFac
+            End If
+            pH = data(3)
+            Call CalculateTCfrompHfCO2(pH, fCO2, K0, K1, K2, TC)
+            Call CalculateTAfromTCpH(TC, pH, K(), T(), TA)
+            If WhichKs% = 7 Then TA = TA + T(4): ' PAlk(Peng) = PAlk(Dickson) + TP
+            data(2) = TC: data(1) = TA
+    Case Else
+            GoTo endcalculate
+    End Select
+ 
+ '----------------------------- 'Print Session #1 : Input results------------------------------------
+ 
+    results(1) = inoutconditions(1): results(2) = inoutconditions(2): results(3) = inoutconditions(3)
+    results(4) = inoutconditions(4) * 1000000: results(5) = inoutconditions(5) * 1000000
+    results(1 + 5) = data(1) * 1000000#: results(2 + 5) = data(2) * 1000000#: results(3 + 5) = data(3)
+    results(4 + 5) = (10 ^ (-data(3))) * 1000000000# ' [H+] in nmol/Kg
+    results(5 + 5) = data(4) * 1000000#: results(6 + 5) = data(5) * 1000000#
+        
     For i = 1 To numvar - 2 + 5
         If i <= numvar - 2 Then
-             datacf(pt2, i) = "General" 'S,T,P,nuts
+            formats(i) = "General" 'S,T,P,nuts
         ElseIf i = numvar - 2 + 3 Then
-            datacf(pt2, i) = "#0.000" 'pH
+            formats(i) = "#0.000" 'pH
         Else
-            datacf(pt2, i) = "#0.0" ' Ph, Si...
+            formats(i) = "#0.0" ' Ph, Si...
         End If
     Next i
     
-     pHinp = param(3): fCO2inp = param(4): pCO2inp = param(5)
+    pHinp = data(3): fCO2inp = data(4): pCO2inp = data(5)
 
     If SkipAData = vbYes Then
         GoTo CalculatepHfCO2AtOutputConditions
     End If
 '****************************************************************************
 CalculateOtherStuffAtInputConditions:
-        Call CalculateAlkParts(pH, TC, K(), T(), HCO3, CO3, BAlk, OH, PAlk, SiAlk, Hfree, HSO4, HF)
-        If WhichKs% = 7 Then PAlk = PAlk + T(4): ' PAlk(Peng) = PAlk(Dickson) + TP
-                HCO3inp = HCO3: CO3inp = CO3: CO2inp = TC - CO3inp - HCO3inp
-                BAlkinp = BAlk: OHinp = OH: PAlkinp = PAlk: SiAlkinp = SiAlk
-        Call RevelleFactor(WhichKs%, TA, TC, K0, K(), T(), Revelle)
-                Revelleinp = Revelle
-        K1 = K(1): K2 = K(2)
-        Call CaSolubility(WhichKs%, Sal, TempC, Pdbar, TC, pH, K1, K2, OmegaCa, OmegaAr)
-                OmegaCainp = OmegaCa: OmegaArinp = OmegaAr
-                xCO2dryinp = pCO2inp / VPFac: ' this assumes pTot = 1 atm
-          i = 1
-                VarTemp(i) = HCO3inp * 1000000!: VarTempF(i) = "#0.0": i = i + 1
-                VarTemp(i) = CO3inp * 1000000!: VarTempF(i) = "#0.0": i = i + 1
-                VarTemp(i) = CO2inp * 1000000!: VarTempF(i) = "#0.0": i = i + 1
-                VarTemp(i) = BAlkinp * 1000000!: VarTempF(i) = "#0.0": i = i + 1
-                VarTemp(i) = OHinp * 1000000!: VarTempF(i) = "#0.0": i = i + 1
-                VarTemp(i) = PAlkinp * 1000000!: VarTempF(i) = "#0.0": i = i + 1
-                VarTemp(i) = SiAlkinp * 1000000!: VarTempF(i) = "#0.0": i = i + 1
-                VarTemp(i) = Revelleinp: VarTempF(i) = "#0.000": i = i + 1
-                VarTemp(i) = OmegaCainp: VarTempF(i) = "#0.00": i = i + 1
-                VarTemp(i) = OmegaArinp: VarTempF(i) = "#0.00": i = i + 1
-                VarTemp(i) = xCO2dryinp * 1000000!: VarTempF(i) = "#0.0": i = i + 1
+    Call CalculateAlkParts(pH, TC, K(), T(), HCO3, CO3, BAlk, OH, PAlk, SiAlk, Hfree, HSO4, HF)
+    If WhichKs% = 7 Then PAlk = PAlk + T(4): ' PAlk(Peng) = PAlk(Dickson) + TP
+            HCO3inp = HCO3: CO3inp = CO3: CO2inp = TC - CO3inp - HCO3inp
+            BAlkinp = BAlk: OHinp = OH: PAlkinp = PAlk: SiAlkinp = SiAlk
+    Call RevelleFactor(WhichKs%, TA, TC, K0, K(), T(), Revelle)
+            Revelleinp = Revelle
+    K1 = K(1): K2 = K(2)
+    Call CaSolubility(WhichKs%, Sal, TempC, Pdbar, TC, pH, K1, K2, OmegaCa, OmegaAr)
+    OmegaCainp = OmegaCa: OmegaArinp = OmegaAr
+    
+    xCO2dryinp = pCO2inp / VPFac: ' this assumes pTot = 1 atm
+    i = 1
+    VarTemp(i) = HCO3inp * 1000000#: VarTempF(i) = "#0.0": i = i + 1
+    VarTemp(i) = CO3inp * 1000000#: VarTempF(i) = "#0.0": i = i + 1
+    VarTemp(i) = CO2inp * 1000000#: VarTempF(i) = "#0.0": i = i + 1
+    VarTemp(i) = BAlkinp * 1000000#: VarTempF(i) = "#0.0": i = i + 1
+    VarTemp(i) = OHinp * 1000000#: VarTempF(i) = "#0.0": i = i + 1
+    VarTemp(i) = PAlkinp * 1000000#: VarTempF(i) = "#0.0": i = i + 1
+    VarTemp(i) = SiAlkinp * 1000000#: VarTempF(i) = "#0.0": i = i + 1
+    VarTemp(i) = Revelleinp: VarTempF(i) = "#0.000": i = i + 1
+    VarTemp(i) = OmegaCainp: VarTempF(i) = "#0.00": i = i + 1
+    VarTemp(i) = OmegaArinp: VarTempF(i) = "#0.00": i = i + 1
+    VarTemp(i) = xCO2dryinp * 1000000#: VarTempF(i) = "#0.0": i = i + 1
+
   '----------------------------- 'Print Session #2 ------------------------------------
-     For ii = 1 To i - 1
-         datac(pt2, 5 + numvar - 2 + ii) = VarTemp(ii)
-         datacf(pt2, 5 + numvar - 2 + ii) = VarTempF(ii)
-      Next ii
+    For i = 1 To 11
+       results(11 + i) = VarTemp(i)
+       formats(11 + i) = VarTempF(i)
+    Next i
 '
 '****************************************************************************
 CalculatepHfCO2AtOutputConditions:
-        For ii = numvar - 1 To numvar
-             If VarInp(ii) = -9 Or VarInp(ii) = -999 Then GoTo endmain
-        Next ii
-        TempC = Round(VarInp(numvar - 1), 5): Pdbar = Round(VarInp(numvar), 5)
-        Call Constants(pHScale%, WhichKs%, WhoseKSO4%, WhoseKF%, Sal, TempC, Pdbar, K0, K(), T(), fH, FugFac, VPFac)
-        K1 = K(1): K2 = K(2)
-        TA = param(1): TC = param(2): pH = param(3): fCO2 = param(4): pCO2 = param(5)
-        If WhichKs% = 7 Then TA = TA - T(4): ' PAlk(Peng) = PAlk(Dickson) + TP
-        Call CalculatepHfromTATC(TA, TC, K(), T(), pH)
-        If WhichKs% = 7 Then TA = TA + T(4): ' PAlk(Peng) = PAlk(Dickson) + TP
-        Call CalculatefCO2fromTCpH(TC, pH, K0, K1, K2, fCO2): pCO2 = fCO2 / FugFac
+    TempC = inoutconditions(6): Pdbar = inoutconditions(7)
+    
+    ' If output conditions are not defined
+    If TempC = -9 Or TempC = -999 Or Pdbar = -9 Or Pdbar = -999 Then
+        results(24) = -999: results(25) = -999
+        ' Reset result
+        For i = 1 To 14
+           results(25 + i) = 0
+        Next i
+        GoTo endcalculate
+    End If
+    
+    ' if input temp and salinity are conforming to EOS-10
+    If (WhichEOS% = 2) Then
+        ' Given TempC is Conservative temperature
+        ' Convert it to in-situ temperature
+        TempC = gsw_t_from_ct(Sal, TempC, Pdbar)
+    End If
+    
+    Call Constants(pHScale%, WhichKs%, WhoseKSO4%, WhoseKF%, Sal, TempC, Pdbar, K0, K(), T(), fH, FugFac, VPFac)
+        
+    ' Added by JM Epitalon
+    ' For computing derivative with respect to Kx, one has to perturb the value of one K
+    ' Requested perturbation is passed through global variables PertK and Perturb
+    If Len(PertK) <> 0 Then
+        Select Case PertK
+            Case "K0"
+                K0 = K0 + Perturb
+            Case "K1"
+                K(1) = K(1) + Perturb
+            Case "K2"
+                K(2) = K(2) + Perturb
+            Case "KB"
+                K(4) = K(4) + Perturb   ' K(4) = KB
+            Case "KW"
+                K(3) = K(3) + Perturb   ' K(3) = KW
+            Case "BOR"
+                T(1) = T(1) + Perturb   ' T[1) = TB
+        End Select
+    End If
+    K1 = K(1): K2 = K(2)
+    TA = data(1): TC = data(2): pH = data(3): fCO2 = data(4): pCO2 = data(5)
+    If WhichKs% = 7 Then TA = TA - T(4): ' PAlk(Peng) = PAlk(Dickson) + TP
+    Call CalculatepHfromTATC(TA, TC, K(), T(), pH)
+    If WhichKs% = 7 Then TA = TA + T(4): ' PAlk(Peng) = PAlk(Dickson) + TP
+    Call CalculatefCO2fromTCpH(TC, pH, K0, K1, K2, fCO2): pCO2 = fCO2 / FugFac
 '
-        pHout = pH: fCO2out = fCO2: pCO2out = pCO2
-        VarTemp(1) = pHout: VarTemp(2) = fCO2out * 1000000!: VarTemp(3) = pCO2out * 1000000!
+    pHout = pH: fCO2out = fCO2: pCO2out = pCO2
+    VarTemp(1) = pHout: VarTemp(2) = fCO2out * 1000000#: VarTemp(3) = pCO2out * 1000000#
  '----------------------------- 'Print Session #3 ------------------------------------
-    outstart = numvar - 2 + 5 + numaux + 4 + 1
-    datac(pt2, 1 + outstart) = VarInp(numvar - 2 + 1): datac(pt2, 2 + outstart) = VarInp(numvar)
-    datacf(pt2, 1 + outstart) = "General": datacf(pt2, 2 + outstart) = "General"  'Inputs
-    datac(pt2, 3 + outstart) = VarTemp(1): datac(pt2, 4 + outstart) = VarTemp(2): datac(pt2, 5 + outstart) = VarTemp(3)
-    datacf(pt2, 3 + outstart) = "#0.000": datacf(pt2, 4 + outstart) = "#0.0": datacf(pt2, 5 + outstart) = "#0.0"
-
+     
+    results(24) = inoutconditions(6): results(25) = inoutconditions(7)
+    formats(24) = "General": formats(25) = "General"  'Inputs
+    results(26) = VarTemp(1)
+    results(27) = (10 ^ (-VarTemp(1))) * 1000000000# ' [H+] in nmol/Kg
+    results(28) = VarTemp(2): results(29) = VarTemp(3)
+    formats(26) = "#0.000": formats(27) = "#0.0": formats(28) = "#0.0"
 '
-If SkipAData = vbYes Then GoTo endmain
+    If SkipAData = vbYes Then GoTo endcalculate
 '****************************************************************************
 CalculateOtherStuffAtOutputConditions:
-        Call CalculateAlkParts(pH, TC, K(), T(), HCO3, CO3, BAlk, OH, PAlk, SiAlk, Hfree, HSO4, HF)
-        If WhichKs% = 7 Then PAlk = PAlk + T(4): ' PAlk(Peng) = PAlk(Dickson) + TP
-                HCO3out = HCO3: CO3out = CO3: CO2out = TC - CO3out - HCO3out
-                BAlkout = BAlk: OHout = OH: PAlkout = PAlk: SiAlkout = SiAlk
-        Call RevelleFactor(WhichKs%, TA, TC, K0, K(), T(), Revelle)
-                Revelleout = Revelle
-        Call CaSolubility(WhichKs%, Sal, TempC, Pdbar, TC, pH, K1, K2, OmegaCa, OmegaAr)
-                OmegaCaout = OmegaCa: OmegaArout = OmegaAr
-        xCO2dryout = pCO2out / VPFac: ' this assumes pTot = 1 atm
-        
-     ' VarTemp(1) = HCO3out: VarTemp(2) = CO3out: VarTemp(3) = CO2out
-      ' VarTemp(4) = BAlkout: VarTemp(5) = OHout: VarTemp(6) = PAlkout: VarTemp(7) = SiAlkout
-       'VarTemp(8) = Revelleout
-       'VarTemp(9) = OmegaCaout: VarTemp(10) = OmegaArout: VarTemp(11) = xCO2dryout
-        i = 1
-        VarTemp(i) = HCO3out * 1000000!: VarTempF(i) = "#0.0": i = i + 1
-        VarTemp(i) = CO3out * 1000000!: VarTempF(i) = "#0.0": i = i + 1
-        VarTemp(i) = CO2out * 1000000!: VarTempF(i) = "#0.0": i = i + 1
-        VarTemp(i) = BAlkout * 1000000!: VarTempF(i) = "#0.0": i = i + 1
-        VarTemp(i) = OHout * 1000000!: VarTempF(i) = "#0.0": i = i + 1
-        VarTemp(i) = PAlkout * 1000000!: VarTempF(i) = "#0.0": i = i + 1
-        VarTemp(i) = SiAlkout * 1000000!: VarTempF(i) = "#0.0": i = i + 1
-        VarTemp(i) = Revelleout: VarTempF(i) = "#0.000": i = i + 1
-        VarTemp(i) = OmegaCaout: VarTempF(i) = "#0.00": i = i + 1
-        VarTemp(i) = OmegaArout: VarTempF(i) = "#0.00": i = i + 1
-        VarTemp(i) = xCO2dryout * 1000000!: VarTempF(i) = "#0.0": i = i + 1
+    Call CalculateAlkParts(pH, TC, K(), T(), HCO3, CO3, BAlk, OH, PAlk, SiAlk, Hfree, HSO4, HF)
+    If WhichKs% = 7 Then PAlk = PAlk + T(4): ' PAlk(Peng) = PAlk(Dickson) + TP
+            HCO3out = HCO3: CO3out = CO3: CO2out = TC - CO3out - HCO3out
+            BAlkout = BAlk: OHout = OH: PAlkout = PAlk: SiAlkout = SiAlk
+    Call RevelleFactor(WhichKs%, TA, TC, K0, K(), T(), Revelle)
+            Revelleout = Revelle
+    Call CaSolubility(WhichKs%, Sal, TempC, Pdbar, TC, pH, K1, K2, OmegaCa, OmegaAr)
+            OmegaCaout = OmegaCa: OmegaArout = OmegaAr
+    xCO2dryout = pCO2out / VPFac: ' this assumes pTot = 1 atm
+    
+    'VarTemp(1) = HCO3out: VarTemp(2) = CO3out: VarTemp(3) = CO2out
+    'VarTemp(4) = BAlkout: VarTemp(5) = OHout: VarTemp(6) = PAlkout: VarTemp(7) = SiAlkout
+    'VarTemp(8) = Revelleout
+    'VarTemp(9) = OmegaCaout: VarTemp(10) = OmegaArout: VarTemp(11) = xCO2dryout
+    i = 1
+    VarTemp(i) = HCO3out * 1000000#: VarTempF(i) = "#0.0": i = i + 1
+    VarTemp(i) = CO3out * 1000000#: VarTempF(i) = "#0.0": i = i + 1
+    VarTemp(i) = CO2out * 1000000#: VarTempF(i) = "#0.0": i = i + 1
+    VarTemp(i) = BAlkout * 1000000#: VarTempF(i) = "#0.0": i = i + 1
+    VarTemp(i) = OHout * 1000000#: VarTempF(i) = "#0.0": i = i + 1
+    VarTemp(i) = PAlkout * 1000000#: VarTempF(i) = "#0.0": i = i + 1
+    VarTemp(i) = SiAlkout * 1000000#: VarTempF(i) = "#0.0": i = i + 1
+    VarTemp(i) = Revelleout: VarTempF(i) = "#0.000": i = i + 1
+    VarTemp(i) = OmegaCaout: VarTempF(i) = "#0.00": i = i + 1
+    VarTemp(i) = OmegaArout: VarTempF(i) = "#0.00": i = i + 1
+    VarTemp(i) = xCO2dryout * 1000000#: VarTempF(i) = "#0.0": i = i + 1
  '----------------------------- 'Print Session #4 ------------------------------------
-      For ii = 1 To i - 1
-         datac(pt2, 5 + outstart + ii) = VarTemp(ii)
-         datacf(pt2, 5 + outstart + ii) = VarTempF(ii)
-      Next ii
+    For i = 1 To 11
+       results(29 + i) = VarTemp(i)
+       formats(29 + i) = VarTempF(i)
+    Next i
+
+endcalculate:
+End Sub
+
+
+Sub Derivnum(varid As String, SkipAData, deriv() As Double)
+' Inputs :
+'   - varid     :   string identifier of variable with respect to which one derives
+'                   = variable length, case sensitive, character code
+'                     case 'var1'  :  Parameter 1 of the input pair (This is TAlk if PAR1TYPE is 1)
+'                     case 'var2'  :  Parameter 2 of the input pair (This is TAlk if PAR2TYPE is 1)
+'                     case 'sil'   : Silicate concentration
+'                     case 'phos'  : Phosphate concentration
+'                     case 't'     : temperature
+'                     case 's'     : salinity
+'                     case 'K0','K1','K2','Kb','Kw','Kspa','Kspc', or 'bor' : dissociation constaht
+'   - SkipAData      :  whether to compute errors on extraneous carbonate system variables
+'   - global variables  param(), parami(), VarInp()
 '
-GoTo endmain
-'****************************************************************************
-DoPartialsHere:
-        'Call PrintHeader(ICase%, pHScale%, fORp$, TA, TC, pHinp, fCO2inp, pCO2inp, TP, TSi, Sal, TempCinp, Pdbarinp, TempCout, Pdbarout)
-        Select Case ICase%
-        Case 12: ' input TA, TC
-                Call Case1Partials(pHScale%, WhichKs%, WhoseKSO4%, WhoseKF%, fORp$, Sal, K(), T(), TempCinp, TempCout, Pdbarinp, Pdbarout, TA, TC, pHinp, fCO2inp, pCO2inp, pHout, fCO2out, pCO2out)
-        Case 13: ' input TA, pH
-                Call Case2Partials(pHScale%, WhichKs%, WhoseKSO4%, WhoseKF%, fORp$, Sal, K(), T(), TempCinp, TempCout, Pdbarinp, Pdbarout, TA, pHinp, TC, fCO2inp, pCO2inp, pHout, fCO2out, pCO2out)
-        Case 14, 15: ' input TA, fCO2 or pCO2
-                Call Case3Partials(pHScale%, WhichKs%, WhoseKSO4%, WhoseKF%, fORp$, Sal, K(), T(), TempCinp, TempCout, Pdbarinp, Pdbarout, TA, fCO2inp, pCO2inp, TC, pHinp, pHout, fCO2out, pCO2out)
-        Case 23: ' input TC, pH
-                Call Case4Partials(pHScale%, WhichKs%, WhoseKSO4%, WhoseKF%, fORp$, Sal, K(), T(), TempCinp, TempCout, Pdbarinp, Pdbarout, TC, pHinp, TA, fCO2inp, pCO2inp, pHout, fCO2out, pCO2out)
-        Case 24, 25: ' input TC, fCO2 or pCO2
-                TCfCO2Flag% = 0
-                Call Case5Partials(pHScale%, WhichKs%, WhoseKSO4%, WhoseKF%, fORp$, Sal, K(), T(), TempCinp, TempCout, Pdbarinp, Pdbarout, TC, fCO2inp, pCO2inp, TA, pHinp, pHout, fCO2out, pCO2out, TCfCO2Flag%)
-                If TCfCO2Flag% = 1 Then
-                        TCfCO2Flag% = 0
-                       ' Call PrintTCfCO2Warning
-                       ' GoTo Start:
-                End If
-        Case 34, 35: ' input pH, fCO2 or pCO2
-                Call Case6Partials(pHScale%, WhichKs%, WhoseKSO4%, WhoseKF%, fORp$, Sal, K(), T(), TempCinp, TempCout, Pdbarinp, Pdbarout, pHinp, fCO2inp, pCO2inp, TA, TC, pHout, fCO2out, pCO2out)
+' Outputs :
+'   - deriv(40)      :  derivatives of computed carbonate system variables (at input and output conditions)
+'                       not all 40 entries are filled depending on 'SipAData'
+'
+' This subroutine computes numerical partial derivatives of output carbonate variables
+' with respect to input variables (two), plus nutrients (two), temperature and salinity
+' and dissociation constants.
+'
+' It uses the central difference method, which consists to :
+' - introduce a small perturbation delta (plus or minus) in one input
+' - and compute the induced delta in output variables
+'
+' The ratio between PERTURBATION delta and input value is chosen to 1.e-6, 1.e-4 or 1.e-3
+' depending on the case.
+'
+
+    Dim input1(9) As Double, input2(9) As Double
+    Dim param1(5) As Double, param2(5) As Double
+    Dim result1(40) As Double, result2(40) As Double
+    Dim formats(40) As String
+    Dim delta#    ' delta perturbation applied on input variable
+    
+    ' Flag for dissociation constant as perturbed variable
+    flag_dissoc_K = False
+    
+    ' Compute two slightly different values for input
+    ' -----------------------------------------------
+
+    ' Default values : not perturbed
+    ' no change on data
+    For i = 1 To 5
+       param1(i) = param(i)
+       param2(i) = param(i)
+    Next i
+    ' no change on input and output conditions
+    For i = 1 To 9
+       input1(i) = VarInp(i)
+       input2(i) = VarInp(i)
+    Next i
+
+    Select Case varid
+    Case "K0", "K1", "K2", "KB", "KW", "KSPA", "KSPC", "BOR"
+        flag_dissoc_K = True
+        ' Approximate values for K0, K1, K2, Kb, Kspa and Kspc
+        ' They will be used to compute an absolute perturbation value on these constants
+        Dim K_values As Variant
+        K_values = Array(0.034, 0.0000012, 0.00000000083, 0.0000000021, 0.000000000000061, 0.00000067, 0.00000043, 0.0004157)
+        Select Case varid
+            Case "K0"
+                Index% = 1
+            Case "K1"
+                Index% = 2
+            Case "K2"
+                Index% = 3
+            Case "KB"
+                Index% = 4
+            Case "KW"
+                Index% = 5
+            Case "KSPA"
+                Index% = 6
+            Case "KSPC"
+                Index% = 7
+            Case "BOR"
+                Index% = 8
         End Select
-
-endmain:
-      flagcol = numvar + 2 * (5 + numaux + 4 + 1) - 1
-      If SubFlagok = 1 Then
-         datac(pt2, flagcol) = SubFlagT
-      End If
-       
-       Application.StatusBar = "Points Calculated: Total " + Str(pt) + "  This Batch " + Str(pt2)
-       DoEvents
-       c1 = numvar + 9: c2 = c1 + 2 * (numbar + numaux) + 27
-       pt = pt + 1: pt2 = pt2 + 1
-       If (pt2 > OutputNum) Then
-            Application.StatusBar = "Points Calculated: Total " + Str(pt) + "  This Batch " + Str(pt2) + ".  Formatting Data... "
-            DoEvents
-            Range(ActiveCell.Offset(pt3 + 1, c1), ActiveCell.Offset(pt3 + pt2 - 1, c2)).Value = datac
-            Range(ActiveCell.Offset(pt3 + 1, c1), ActiveCell.Offset(pt3 + pt2 - 1, c2)).NumberFormat = datacf
-            'Range(ActiveCell.Offset(pt3 + 1, 16), ActiveCell.Offset(pt3 + pt2 - 1, 53)).Value = datac
-            'Range(ActiveCell.Offset(pt3 + 1, 16), ActiveCell.Offset(pt3 + pt2 - 1, 53)).NumberFormat = datacf
- '           Range(ActiveCell.Offset(pt3 + 1, 16), ActiveCell.Offset(pt3 + pt2 - 1, 55)).Font.ColorIndex = datacC
-            For i = pt3 + 1 To pt3 + pt2 - 1
-                    If datac(i - pt3, flagcol) <> "" Then
-                        Range(ActiveCell.Offset(i, c1), ActiveCell.Offset(i, c2)).Font.ColorIndex = 3
-                    Else
-                        Range(ActiveCell.Offset(i, c1), ActiveCell.Offset(i, c2)).Font.ColorIndex = 0
-                    End If
+        ' Choose value of absolute perturbation
+        perturbation# = K_values(Index%) * 0.001    ' 0.1 percent of Kx value
+        abs_dx# = 2 * perturbation#
+    
+    Case "var1", "var2"
+        ' Define relative delta
+        delta# = 0.000001
+        ' Define index in carbonate system input list
+        If varid = "var1" Then   ' Var1 is perturbed
+            indx = parami(1)
+        Else
+            indx = parami(2)
+        End If
+        
+        ' if input variable is [H+] concentration
+        If indx = 3 Then
+            ' Determine H+ from pH
+            H# = 10 ^ (-param(3))
+            ' Change slightly [H+]
+            H1# = H# - H# * delta#
+            H2# = H# + H# * delta#
+            param1(3) = -Log(H1) / Log(10)
+            param2(3) = -Log(H2) / Log(10)
+            abs_dx# = H2# - H1#
+        Else
+            ' Change slightly var1 or var2
+            param1(indx) = param(indx) - param(indx) * delta#
+            param2(indx) = param(indx) + param(indx) * delta#
+            ' Absolute delta
+            abs_dx# = param2(indx) - param1(indx)
+        End If
+    Case Else
+        Select Case varid
+        Case "sil"
+           delta# = 0.001
+           indx = 5
+        Case "phos"
+           delta# = 0.001
+           indx = 4
+        Case "s"
+           delta# = 0.0001
+           indx = 1
+        Case "t"
+           delta# = 0.0001
+           indx = 2
+        Case Else
+            ' Invalid variable Id
+            For i = 1 To 40
+                deriv(i) = 0#
             Next i
-            
-            Erase datac
-            pt3 = pt3 + pt2 - 1
-            pt2 = 1: DoEvents
-       End If
-       Set varinpr = Range(ActiveCell.Offset(pt, startofvar), ActiveCell.Offset(pt, endofvar))
-       Set datar = Range(ActiveCell.Offset(pt, startofdata), ActiveCell.Offset(pt, endofdata))
-       stilldata = WorksheetFunction.CountA(datar) + WorksheetFunction.CountA(varinpr)
-       If (stilldata = 0) Then
-           Application.StatusBar = "Points Calculated: Total " + Str(pt) + "  This Batch " + Str(pt2) + ".  Formatting Data... "
-           DoEvents
-           Range(ActiveCell.Offset(pt3 + 1, c1), ActiveCell.Offset(pt3 + pt2 - 1, c2)).Value = datac
-           Range(ActiveCell.Offset(pt3 + 1, c1), ActiveCell.Offset(pt3 + pt2 - 1, c2)).NumberFormat = datacf
-           'Range(ActiveCell.Offset(pt3 + 1, 16), ActiveCell.Offset(pt3 + pt2 - 1, 55)).Value = datac
-           'Range(ActiveCell.Offset(pt3 + 1, 16), ActiveCell.Offset(pt3 + pt2 - 1, 53)).NumberFormat = datacf
-           'Range(ActiveCell.Offset(pt3 + 1, 16), ActiveCell.Offset(pt3 + pt2 - 1, 55)).Font.ColorIndex = datacC
-           For i = pt3 + 1 To pt3 + pt2 - 1
-                 If datac(i - pt3, flagcol) <> "" Then
-                     Range(ActiveCell.Offset(i, c1), ActiveCell.Offset(i, c2)).Font.ColorIndex = 3
-                 Else
-                     Range(ActiveCell.Offset(i, c1), ActiveCell.Offset(i, c2)).Font.ColorIndex = 0
-                End If
-          Next i
-       End If
+            Return
+        End Select
+        ' Change slightly the parameter
+        input1(indx) = VarInp(indx) - VarInp(indx) * delta
+        input2(indx) = VarInp(indx) + VarInp(indx) * delta
+        ' Absolute delta
+        abs_dx# = input2(indx) - input1(indx)
 
-   Loop 'end of do while stilldata
-  
-  Application.StatusBar = ""
+    End Select
+    
+    ' PERTURBATION:
+    ' -------------
+
+    ' Point 1: (one dissociation constant or PAR1, PAR2, T or S is somewhat smaller)
+    ' if perturbed variable is a dissociation constant
+    If flag_dissoc_K Then
+        PertK = varid
+        Perturb = -perturbation
+    End If
+    Call Calculate(input1(), param1(), SkipAData, result1(), formats())
+
+    ' Point 2: (one dissociation constant or PAR1, PAR2, T or S is somewhat bigger)
+    ' if perturbed variable is a dissociation constant
+    If flag_dissoc_K Then
+        PertK = varid
+        Perturb = perturbation
+    End If
+    Call Calculate(input2(), param2(), SkipAData, result2(), formats())
+    ' if perturbed variable is a dissociation constant
+    If flag_dissoc_K Then
+        PertK = ""  ' Return to normal (unperturbed) K
+    End If
+
+    ' Compute derivatives
+    ' ===================
+    
+    ' Carbonate system variables at input conditions
+    For i = 6 To 11
+        ' Centered difference
+        dy# = result2(i) - result1(i)
+        ' Compute ratio dy#/dx
+        deriv(i) = dy# / abs_dx#
+    Next i
+    ' Other stuff at input conditions
+    If SkipAData = vbNo Then
+        For i = 12 To 22
+            ' Centered difference
+            dy# = result2(i) - result1(i)
+            ' Compute ratio dy#/dx
+            deriv(i) = dy# / abs_dx#
+        Next i
+    End If
+    ' Carbonate system variables at output conditions
+    For i = 26 To 29
+        ' Centered difference
+        dy# = result2(i) - result1(i)
+        ' Compute ratio dy#/dx
+        deriv(i) = dy# / abs_dx#
+    Next i
+    ' Other stuff at output conditions
+    If SkipAData = vbNo Then
+        For i = 30 To 40
+            ' Centered difference
+            dy# = result2(i) - result1(i)
+            ' Compute ratio dy#/dx
+            deriv(i) = dy# / abs_dx#
+        Next i
+    End If
+
+End Sub
+
+Sub CalculateErrors(SkipAData, eVar1 As Double, eVar2 As Double, eSal As Double, eTemp As Double, _
+           eSil As Double, ePhos As Double, r As Double, epK() As Double, errors() As Double)
+' Inputs :
+'   - SkipAData      :  whether to compute errors on extraneous carbonate system variables
+'   - eVar1, evar2   :  standard error (or uncertainty) on input pair of carbonate system variables
+'   - eSal, eTemp    :  standard error (or uncertainty) on Salinity and Temperature
+'   - ePhos, eSil    :  standard error (or uncertainty) on Phosphate and Silicate total concentrations
+'   - epK            :  standard error (or uncertainty) on all 7 dissociation constants + TB(a vector)
+'   - global variables  param(), parami(), VarInp()
+'
+'   * epK must be vector of 8 values : errors of pK0, pK1, pK2, pKb, pKw, pKspa, pKspc, and TB
+'
+' Outputs :
+'   - errors(40)     :  standard error on computed carbonate system variables (at input and output conditions)
+'                       not all 40 entries are filled depending on 'SipAData'
+'
+' This subroutine does error propagation on the computation of carbonate system variables
+' from errors (or uncertainties) on six input
+'  - pair of carbonate system variables
+'  - nutrients (silicate and phosphate concentrations)
+'  - temperature and salinity
+' plus errors on dissociation constants pK0, pK1, pK2, pKb, pKw, pKspa, pKspc, and total boron (TB)
+' plus the correlation coefficient between errors on pair of input carbonate system variables
+'
+' It computes numerical derivatives then applies error propagation using the method of moments.
+' The method of moments is a very general technique for estimating the second moment of a variable z
+' (variance or standard deviation) based on a first-order approximation to z.
+'
+' If 'r' is not empty nor 0, having a value between -1.0 and 1.0, it indicates the correlation
+' between uncertainties of the input pair of carbonate system variables.
+' By default, 'r' is zero. However, for some pairs the user may want to specify a
+' different value. For example, measurements of pCO2 and pH are often anti-correlated.
+' The same goes for two other pairs: 'CO2 and CO3' and 'pCO2 and
+' CO3'. But even for these cases, care is needed before using non-zero values of 'r'.
+'
+' When the user wishes to propagate errors for an individual
+' measurement, 'r' should ALWAYS be zero if each member of the input pair is
+' measured independently. In this case, we are interested in the
+' correlation between the uncertainties in those measurements, not in
+' the correlation between the measurments themselves. Uncertainties from
+' those measurements are probably not correlated if they come from
+' different instruments. Conversely, if users are interested in the
+' error in the mean of a distribution of measurements (i.e., if they are
+' propagating standard errors instead of standard deviations), one
+' should then also account for the correlation between the measurements of
+' the two variables of the input pair.
+'
+' For input pairs where one member is pH (flags 1, 6, 7, 8, 9, and 21),
+' this 'errors' routine automatically inverses the sign of 'r'. The
+' reason for that is that the associated derivatives are computed in terms of
+' the hydrogen ion concentration H+, not pH. Therefore for each of these 6
+' flags, if the user wants to compute 'r' that should be done (1) using
+' the H+ concentration instead of pH, and (2) the sign of that computed 'r'
+' should be inversed when passing it as an argument to this routine.
+' For these cases, to express perfect anticorrelation with pH, the user should
+' use 'r=1.0'. For all other flags (those without pH as a member), the sign
+' of 'r' should not be inversed.
+'
+    Dim deriv(40) As Double
+    Dim deriv1(40) As Double
+    Dim deriv2(40) As Double
+    Dim Sq_err(40) As Double
+    Dim Err#
+    
+    ' names of dissociation constants
+    Dim K_names() As String
+    K_names = Split("K0,K1,K2,KB,KW,KSPA,KSPC,BOR", ",")
+
+    ' Convert error on pH to error on [H+] concentration
+    ' in case where first input variable is pH
+    If parami(1) = 3 Then
+        pH# = param(3)
+        epH# = eVar1       ' Error on pH
+        H# = 10# ^ (-pH#)   ' H+ concentration
+    
+        ' dpH = d(-log10[H])
+        '     = d(- ln[H] / ln[10] )
+        '     = -(1/ln[10]) * d (ln[H])
+        '     = -(1/ln[10]) * (dH / H)
+        ' Thus dH = - ln[1O] * [H] dpH
+        eH# = Log(10) * (H# * epH#)    ' Removed minus sign as we want eH positive
+        eVar1 = eH#
+        r = -r    'Inverse sign of 'r' if param(1) is pH
+    End If
+    
+    ' Same conversion for second variable
+    If parami(2) = 3 Then
+        pH# = param(3)
+        epH# = eVar2       ' Error on pH
+        H# = 10# ^ (-pH#)   ' H+ concentration
+    
+        ' dpH = d(-log10[H])
+        '     = d(- ln[H] / ln[10] )
+        '     = -(1/ln[10]) * d (ln[H])
+        '     = -(1/ln[10]) * (dH / H)
+        ' Thus dH = - ln[1O] * [H] dpH
+        eH# = Log(10) * (H# * epH#)    ' Removed minus sign as we want eH positive
+        eVar2 = eH#
+        r = -r    'Inverse sign of 'r' if param(2) is pH
+    End If
+
+    ' initialise total square error
+    For i = 1 To 40
+        Sq_err(i) = 0
+    Next i
+        
+    ' Contribution of Var1 to squared standard error
+    If eVar1 <> 0 Then
+        ' Compute sensitivities (partial derivatives)
+        Call Derivnum("var1", SkipAData, deriv1())
+        For i = 1 To 40
+            Err# = deriv1(i) * eVar1
+            Sq_err(i) = Sq_err(i) + Err# * Err#
+        Next i
+    End If
+
+    ' Contribution of Var2 to squared standard error
+    If eVar2 <> 0 Then
+        Call Derivnum("var2", SkipAData, deriv2())
+        For i = 1 To 40
+            Err# = deriv2(i) * eVar2
+            Sq_err(i) = Sq_err(i) + Err# * Err#
+        Next i
+    End If
+
+    ' Contribution of covariance of Var1 and Var2 to squared standard error
+    If r <> 0# And eVar1 <> 0# And eVar2 <> 0# Then
+        ' Compute covariance from correlation coeff. and standard deviations
+        covariance# = r * eVar1 * eVar2
+        ' Contribution to squared error
+        For i = 1 To 40
+            Err2# = 2 * deriv1(i) * deriv2(i) * covariance#
+            Sq_err(i) = Sq_err(i) + Err2#
+        Next i
+    End If
+    
+    ' Contribution of Silicon (total dissolved inorganic concentration) to squared standard error
+    '
+    ' Remark : does not compute error where SI = 0
+    '          because computation of sensitivity to SI fails in that case
+    '
+    Sil# = VarInp(5)
+    If Sil# <> 0 And eSil <> 0 Then
+        ' Compute sensitivities (partial derivatives)
+        Call Derivnum("sil", SkipAData, deriv())
+        For i = 1 To 40
+            Err# = deriv(i) * eSil
+            Sq_err(i) = Sq_err(i) + Err# * Err#
+        Next i
+    End If
+
+    ' Contribution of Phosphorus (total dissoloved inorganic concentration) to squared standard error
+    '
+    ' Remark : does not compute error where PO4 = 0
+    '          because computation of sensitivity to PO4 fails in that case
+    '
+    Phos# = VarInp(4)
+    If Phos# <> 0 And ePhos <> 0 Then
+        ' Compute sensitivities (partial derivatives)
+        Call Derivnum("phos", SkipAData, deriv())
+        For i = 1 To 40
+            Err# = deriv(i) * ePhos
+            Sq_err(i) = Sq_err(i) + Err# * Err#
+        Next i
+    End If
+
+    ' Contribution of T (temperature) to squared standard error
+    If eTemp <> 0# Then
+        ' Compute sensitivities (partial derivatives)
+        Call Derivnum("t", SkipAData, deriv())
+        For i = 1 To 40
+            Err# = deriv(i) * eTemp
+            Sq_err(i) = Sq_err(i) + Err# * Err#
+        Next i
+    End If
+
+    ' Contribution of S (salinity) to squared standard error
+    If eSal <> 0# Then
+        ' Compute sensitivities (partial derivatives)
+        Call Derivnum("s", SkipAData, deriv())
+        For i = 1 To 40
+            Err# = deriv(i) * eSal
+            Sq_err(i) = Sq_err(i) + Err# * Err#
+        Next i
+    End If
+
+    ' Calculate dissociation constants at input conditions
+    Sal = VarInp(1): TempC = VarInp(2): Pdbar = VarInp(3)
+    Dim K_inp(10), K0_inp
+    Call Constants(pHScale%, WhichKs%, WhoseKSO4%, WhoseKF%, Sal, TempC, Pdbar, K0_inp, K_inp(), T(), fH, FugFac, VPFac)
+    
+    ' Calculate solubility products at input conditions
+    Dim KCa, KAr
+    Call SolubilityProduct(WhichKs%, Sal, TempC, Pdbar, KCa, KAr)
+    
+    ' Contribution of all pK to squared standard error
+    For indx_K = 1 To 8
+        ' if error on K is given
+        If epK(indx_K) <> 0# Then
+            ' Select K
+            Dim Kx As Double
+            Select Case indx_K
+                Case 1
+                  Kx = CDbl(K0_inp)   ' K0
+                Case 2
+                  Kx = CDbl(K_inp(1))   ' K1
+                Case 3
+                  Kx = CDbl(K_inp(2))   ' K2
+                Case 4
+                  Kx = CDbl(K_inp(4))   ' KB
+                Case 5
+                  Kx = CDbl(K_inp(3))   ' KW
+                Case 6
+                  Kx = CDbl(KAr)
+                Case 7
+                  Kx = CDbl(KCa)
+                Case 8
+                  Kx = CDbl(T(1) / Log(10)) 'TB
+            End Select
+
+            ' compute error on K from that on pK
+            eK# = -epK(indx_K) * Kx * Log(10)
+            ' Compute sensitivities (partial derivatives)
+            Call Derivnum(K_names(indx_K - 1), SkipAData, deriv())
+            For i = 1 To 40
+                Err# = deriv(i) * eK#
+                Sq_err(i) = Sq_err(i) + Err# * Err#
+            Next i
+        End If
+    Next indx_K
+
+    ' Compute and return resulting total error (or uncertainty)
+    For i = 1 To 40
+        errors(i) = Sqr(Sq_err(i))
+    Next i
 End Sub
 
 Sub AboutCO2SYS(mess() As String)
@@ -1009,59 +1617,150 @@ AboutConstantsp4:
         mess(13) = mess(13) + "     Guide to best practices for ocean CO2 measurements. " + Chr$(LF)
         mess(13) = mess(13) + "     PICES Special Publication 3, 191 pp. " + Chr$(LF)
         mess(13) = mess(13) + "     Dickson, A.G., Sabine, C.L. and Christian, J.R. (Eds.) 2007. "
+'***************************************
+AboutErrorPropagation:
+        mess(14) = ""
+        mess(14) = mess(14) + "The ""ERROR"" tab does error propagation on the computation of carbonate system variables" + Chr$(LF)
+        mess(14) = mess(14) + "from errors (or uncertainties) on six input" + Chr$(LF)
+        mess(14) = mess(14) + "     - pair of carbonate system variables" + Chr$(LF)
+        mess(14) = mess(14) + "     - nutrients (silicate and phosphate concentrations)" + Chr$(LF)
+        mess(14) = mess(14) + "     - temperature and salinity" + Chr$(LF)
+        mess(14) = mess(14) + "    plus errors on dissociation constants pK0, pK1, pK2, pKb, pKw, pKspa and pKspc" + Chr$(LF)
+        mess(14) = mess(14) + "    plus the correlation coefficient between errors on pair of input carbonate system variables" + Chr$(LF)
+        mess(14) = mess(14) + Chr$(LF)
+        mess(14) = mess(14) + "Errors (or uncertainties) on input variables:" + Chr$(LF)
+        mess(14) = mess(14) + "     You have to enter input uncertainties on the left part of the tab for each corresponding line of ""DATA"" tab." + Chr$(LF)
+        mess(14) = mess(14) + Chr$(LF)
+        mess(14) = mess(14) + "Errors on dissociation constants:" + Chr$(LF)
+        mess(14) = mess(14) + "     You have to enter the uncertainties on seven constants in the column M of ""ERROR"" tab" + Chr$(LF)
+        mess(14) = mess(14) + "     They are applied to all entry lines of ""DATA"" tab." + Chr$(LF)
+        mess(14) = mess(14) + Chr$(LF)
+        mess(14) = mess(14) + "Method used:" + Chr$(LF)
+        mess(14) = mess(14) + "     It computes numerical derivatives then applies error propagation using the method of moments." + Chr$(LF)
+        mess(14) = mess(14) + "     The method of moments is a very general technique for estimating the second moment of a variable z" + Chr$(LF)
+        mess(14) = mess(14) + "     (variance or standard deviation) based on a first-order approximation to z." + Chr$(LF)
+        mess(14) = mess(14) + Chr$(LF)
+        mess(14) = mess(14) + " Correlation coefficient:" + Chr$(LF)
+        mess(14) = mess(14) + "     If column 'r' is not empty nor 0, having a value between -1.0 and 1.0, it indicates" + Chr$(LF)
+        mess(14) = mess(14) + "     the correlation between uncertainties of the input pair of carbonate system variables." + Chr$(LF)
+        mess(14) = mess(14) + "     By default, 'r' is zero. However, for some pairs the user may want to specify a" + Chr$(LF)
+        mess(14) = mess(14) + "     different value. For example, measurements of pCO2 and pH are often anti-correlated." + Chr$(LF)
+        mess(14) = mess(14) + "     The same goes for two other pairs: 'CO2 and CO3' and 'pCO2 and" + Chr$(LF)
+        mess(14) = mess(14) + "     CO3'. But even for these cases, care is needed before using non-zero values of 'r'." + Chr$(LF)
+        mess(14) = mess(14) + Chr$(LF)
+        mess(14) = mess(14) + "     When the user wishes to propagate errors for an individual" + Chr$(LF)
+        mess(14) = mess(14) + "     measurement, 'r' should ALWAYS be zero if each member of the input pair is" + Chr$(LF)
+        mess(14) = mess(14) + "     measured independently. In this case, we are interested in the" + Chr$(LF)
+        mess(14) = mess(14) + "     correlation between the uncertainties in those measurements, not in" + Chr$(LF)
+        mess(14) = mess(14) + "     the correlation between the measurments themselves. Uncertainties from" + Chr$(LF)
+        mess(14) = mess(14) + "     those measurements are probably not correlated if they come from" + Chr$(LF)
+        mess(14) = mess(14) + "     different instruments. Conversely, if users are interested in the" + Chr$(LF)
+        mess(14) = mess(14) + "     error in the mean of a distribution of measurements (i.e., if they are" + Chr$(LF)
+        mess(14) = mess(14) + "     propagating standard errors instead of standard deviations), one" + Chr$(LF)
+        mess(14) = mess(14) + "     should then also account for the correlation between the measurements of" + Chr$(LF)
+        mess(14) = mess(14) + "     the two variables of the input pair." + Chr$(LF)
+        mess(14) = mess(14) + Chr$(LF)
+        mess(14) = mess(14) + "     For input pairs where one member is pH ," + Chr$(LF)
+        mess(14) = mess(14) + "     this program automatically inverses the sign of 'r'." + Chr$(LF)
+        mess(14) = mess(14) + "     The reason for that is that the associated derivatives are computed in terms of" + Chr$(LF)
+        mess(14) = mess(14) + "     the hydrogen ion concentration H+, not pH. Therefore for each of these 6" + Chr$(LF)
+        mess(14) = mess(14) + "     flags, if the user wants to compute 'r' that should be done (1) using" + Chr$(LF)
+        mess(14) = mess(14) + "     the H+ concentration instead of pH, and (2) the sign of that computed 'r'" + Chr$(LF)
+        mess(14) = mess(14) + "     should be inversed when passing it as an argument to this routine." + Chr$(LF)
+        mess(14) = mess(14) + "     For these cases, to express perfect anticorrelation with pH, the user should" + Chr$(LF)
+        mess(14) = mess(14) + "     use 'r=1.0'. For all other flags (those without pH as a member), the sign" + Chr$(LF)
+        mess(14) = mess(14) + "     of 'r' should not be inversed." + Chr$(LF)
+        mess(14) = mess(14) + Chr$(LF)
+'
+'***************************************
+AboutTEOS10:
+        mess(15) = ""
+        mess(15) = mess(15) + "Usually, when doing some experiments, one deals with simple, practical units" + Chr$(LF)
+        mess(15) = mess(15) + "or Temperature and Salinity" + Chr$(LF)
+        mess(15) = mess(15) + "-   In-situ Temperature in degree Celsius" + Chr$(LF)
+        mess(15) = mess(15) + "-   Practical Salinity in  psu (practical salinity units)" + Chr$(LF)
+        mess(15) = mess(15) + "These variables are compliant with EOS-80 standard." + Chr$(LF)
+        mess(15) = mess(15) + Chr$(LF)
+        mess(15) = mess(15) + "On some occasions, one may want or need to use temperature and salinity units" + Chr$(LF)
+        mess(15) = mess(15) + "as recommended in TEOS-10 (http://www.teos-10.org/), that is:" + Chr$(LF)
+        mess(15) = mess(15) + "-   Conservative temperature in degree C" + Chr$(LF)
+        mess(15) = mess(15) + "-   Absolute salinity in g/kg" + Chr$(LF)
+        mess(15) = mess(15) + Chr$(LF)
+        mess(15) = mess(15) + "If so, select [TEOS-10] in fourth column of sheet ""INPUT""" + Chr$(LF)
+        mess(15) = mess(15) + Chr$(LF)
 '****************************************************************************
 AboutMacroHistory1:
-        mess(14) = ""
-        mess(14) = mess(14) + "Previous versions (2007): CO2sys_macro_PC.xls   and CO2sys_macro_MAC.xls" + Chr$(LF) + Chr$(LF)
-        mess(14) = mess(14) + "      . Two separate files for PC and MAC versions." + Chr$(LF)
-        mess(14) = mess(14) + Chr$(LF)
-        mess(14) = mess(14) + "Version 1.0 (10 Octobre 2011): CO2sys_2011.xls" + Chr$(LF) + Chr$(LF)
-        mess(14) = mess(14) + "      . Combined PC and MAC versions of previous macro into one file working on both platforms." + Chr$(LF)
-        mess(14) = mess(14) + Chr$(LF)
-        mess(14) = mess(14) + "Version 2.0 (19 July 2012): CO2sys_2011.xls" + Chr$(LF) + Chr$(LF)
-        mess(14) = mess(14) + "      . New R formulation from ""NIST Physical Reference Data (http://physics.nist.gov/cgi-bin/cuu/Value?r)""" + Chr$(LF)
-        mess(14) = mess(14) + "               Difference with old formulation  is not numerically significant." + Chr$(LF)
-        mess(14) = mess(14) + "      . Matched formulation of Uppstrom's Total Boron with Matlab program (same numerical results)." + Chr$(LF)
-        mess(14) = mess(14) + "      . Added option of Total Boron from Lee et al., 2010" + Chr$(LF)
-        mess(14) = mess(14) + "      . Added a few formulations for K1, K2:" + Chr$(LF)
-        mess(14) = mess(14) + "                - Cai and Wang, 1998" + Chr$(LF)
-        mess(14) = mess(14) + "                - Lueker et al., 2000" + Chr$(LF)
-        mess(14) = mess(14) + "                - Mojica Prieto et al., 2002" + Chr$(LF)
-        mess(14) = mess(14) + "                - Millero et al., 2002" + Chr$(LF)
-        mess(14) = mess(14) + "                - Millero et al., 2006" + Chr$(LF)
-        mess(14) = mess(14) + "                - Millero, 2010" + Chr$(LF)
-        mess(14) = mess(14) + "      . Updated the ""INFO"" section" + Chr$(LF)
-        mess(14) = mess(14) + "      . Added the ""Macro Version History"" option in ""INFO"" Sheet." + Chr$(LF)
-        mess(14) = mess(14) + "      . Version number is displayed in cell B2 when the ""About this Macro"" option in ""INFO"" Sheet is selected." + Chr$(LF)
-        mess(14) = mess(14) + Chr$(LF)
-        mess(14) = mess(14) + "Version 2.1 (18 September 2012): CO2sys_v2.1.xls" + Chr$(LF) + Chr$(LF)
-        mess(14) = mess(14) + "      . Corrected an error in the code which affected the results when the constants of 'Millero et. al., 2002'" + Chr$(LF)
-        mess(14) = mess(14) + "                and 'Millero, 2010' were selected." + Chr$(LF)
-        mess(14) = mess(14) + "      . References to  'Cai and Wang, 2008' have been corrected to 'Cai and Wang, 1998'" + Chr$(LF)
-        mess(14) = mess(14) + "      . Incorporated version number in the name of the file and removed it from the 'INFO' sheet (see v.2.0)" + Chr$(LF)
-        mess(14) = mess(14) + Chr$(LF)
-        mess(14) = mess(14) + "Version 2.2 (27 October 2015): CO2sys_v2.2xls" + Chr$(LF) + Chr$(LF)
-        mess(14) = mess(14) + "      . Added the choice of 'Perez and Fraga, 1987' for KF" + Chr$(LF)
-        mess(14) = mess(14) + "      . Set the defaults to Lueker for K1,K2, Dickson for KHSO4, Perez for KF, Total for pH Scale and Lee for [B]T" + Chr$(LF)
-        mess(14) = mess(14) + "      . Added the 'SubFlags' and 'Red data rows': " + Chr$(LF)
-        mess(14) = mess(14) + "                 If Pressure, Phosphate or Silica is '-999', calculations will performed with the parameter set to 0" + Chr$(LF)
-        mess(14) = mess(14) + "                 and the resulting row of data will be colored in red. The 'SubFlag' column at the end will state the reason." + Chr$(LF)
-       
-        mess(14) = mess(14) + Chr$(LF)
-'Return
+        mess(16) = ""
+        mess(16) = mess(16) + "Previous versions (2007): CO2sys_macro_PC.xls   and CO2sys_macro_MAC.xls" + Chr$(LF) + Chr$(LF)
+        mess(16) = mess(16) + "      . Two separate files for PC and MAC versions." + Chr$(LF)
+        mess(16) = mess(16) + Chr$(LF)
+        mess(16) = mess(16) + "Version 1.0 (10 Octobre 2011): CO2sys_2011.xls" + Chr$(LF) + Chr$(LF)
+        mess(16) = mess(16) + "      . Combined PC and MAC versions of previous macro into one file working on both platforms." + Chr$(LF)
+        mess(16) = mess(16) + Chr$(LF)
+        mess(16) = mess(16) + "Version 2.0 (19 July 2012): CO2sys_2011.xls" + Chr$(LF) + Chr$(LF)
+        mess(16) = mess(16) + "      . New R formulation from ""NIST Physical Reference Data (http://physics.nist.gov/cgi-bin/cuu/Value?r)""" + Chr$(LF)
+        mess(16) = mess(16) + "               Difference with old formulation  is not numerically significant." + Chr$(LF)
+        mess(16) = mess(16) + "      . Matched formulation of Uppstrom's Total Boron with Matlab program (same numerical results)." + Chr$(LF)
+        mess(16) = mess(16) + "      . Added option of Total Boron from Lee et al., 2010" + Chr$(LF)
+        mess(16) = mess(16) + "      . Added a few formulations for K1, K2:" + Chr$(LF)
+        mess(16) = mess(16) + "                - Cai and Wang, 1998" + Chr$(LF)
+        mess(16) = mess(16) + "                - Lueker et al., 2000" + Chr$(LF)
+        mess(16) = mess(16) + "                - Mojica Prieto et al., 2002" + Chr$(LF)
+        mess(16) = mess(16) + "                - Millero et al., 2002" + Chr$(LF)
+        mess(16) = mess(16) + "                - Millero et al., 2006" + Chr$(LF)
+        mess(16) = mess(16) + "                - Millero, 2010" + Chr$(LF)
+        mess(16) = mess(16) + "      . Updated the ""INFO"" section" + Chr$(LF)
+        mess(16) = mess(16) + "      . Added the ""Macro Version History"" option in ""INFO"" Sheet." + Chr$(LF)
+        mess(16) = mess(16) + "      . Version number is displayed in cell B2 when the ""About this Macro"" option in ""INFO"" Sheet is selected." + Chr$(LF)
+        mess(16) = mess(16) + Chr$(LF)
+        mess(16) = mess(16) + "Version 2.1 (18 September 2012): CO2sys_v2.1.xls" + Chr$(LF) + Chr$(LF)
+        mess(16) = mess(16) + "      . Corrected an error in the code which affected the results when the constants of 'Millero et. al., 2002'" + Chr$(LF)
+        mess(16) = mess(16) + "                and 'Millero, 2010' were selected." + Chr$(LF)
+        mess(16) = mess(16) + "      . References to  'Cai and Wang, 2008' have been corrected to 'Cai and Wang, 1998'" + Chr$(LF)
+        mess(16) = mess(16) + "      . Incorporated version number in the name of the file and removed it from the 'INFO' sheet (see v.2.0)" + Chr$(LF)
+        mess(16) = mess(16) + Chr$(LF)
+        mess(16) = mess(16) + "Version 2.2 (27 October 2015): CO2sys_v2.2xls" + Chr$(LF) + Chr$(LF)
+        mess(16) = mess(16) + "      . Added the choice of 'Perez and Fraga, 1987' for KF" + Chr$(LF)
+        mess(16) = mess(16) + "      . Set the defaults to Lueker for K1,K2, Dickson for KHSO4, Perez for KF, Total for pH Scale and Lee for [B]T" + Chr$(LF)
+        mess(16) = mess(16) + "      . Added the 'SubFlags' and 'Red data rows': " + Chr$(LF)
+        mess(16) = mess(16) + "                 If Pressure, Phosphate or Silica is '-999', calculations will performed with the parameter set to 0" + Chr$(LF)
+        mess(16) = mess(16) + "                 and the resulting row of data will be colored in red. The 'SubFlag' column at the end will state the reason." + Chr$(LF)
+        mess(16) = mess(16) + Chr$(LF)
+        mess(16) = mess(16) + "Version 2.3 (18 November 2016): CO2sys_v2.3xls" + Chr$(LF) + Chr$(LF)
+        mess(16) = mess(16) + "      . Corrected output format of results" + Chr$(LF)
+        mess(16) = mess(16) + "      . Bug fix: added code to prevent calculation of pH (fromTATC or fromTAfCO2) from getting stuck in infinite loop" + Chr$(LF)
+        mess(16) = mess(16) + "                 of alternatively negative and positive delta pHs." + Chr$(LF)
+        mess(16) = mess(16) + "      . Bug fix: Corrected handling of -999 in data. would skip line at first encountered -999 in CO2 parameter." + Chr$(LF)
+        mess(16) = mess(16) + "                 Would also not handle -999 in output conditions. (11/18/2016)" + Chr$(LF)
+        mess(16) = mess(16) + "      . Bug fix: Corrected coloring of problematic line in red and expanded "results" range to clear to include flag in last column. (11/18/2016)" + Chr$(LF)
+        mess(16) = mess(16) + Chr$(LF)
+        mess(16) = mess(16) + "Version 2.4 (9 June 2016): CO2sys_v2.4.xls" + Chr$(LF) + Chr$(LF)
+        mess(16) = mess(16) + "      . Added error propagation in a new sheet titled ""ERROR""" + Chr$(LF)
+        mess(16) = mess(16) + Chr$(LF)
+        mess(16) = mess(16) + "Version 2.5 (25 January 2017): CO2sys_v2.5.xls" + Chr$(LF) + Chr$(LF)
+        mess(16) = mess(16) + "      . Added an option for TEOS-10" + Chr$(LF)
+        mess(16) = mess(16) + Chr$(LF)
+'
+
 '****************************************************************************
 
 End Sub
 
 Sub Initiate(SetDefaults)
    
+' In order to open gsw.dll which is in the same folder as this workbook
+Application.DefaultFilePath = CStr(Application.ActiveWorkbook.Path)
+
+PertK = 0    ' Id of perturbed K for computing derivatives
 
 '********************** DEFAULT**************************
 WhichKsDefault% = 10             ' Lueker 2000
 WhoseKSO4Default% = 1 ' Dickson's KSO4
 WhoseKFDefault% = 2 ' Perez and Fraga's KF
 pHScaleDefault% = 1   ' Total pH scale
+pHScaleDefault% = 1   ' Total pH scale
 WhichTBDefault% = 2    'Lee
+WhichEOSDefault% = 1            ' EOS-80
 'BatchDefault% = 1        ' single-input mode
 'TA = 0.0023:            ' mol/kg-SW
 'TC = 0.0021:            ' mol/kg-SW
@@ -1105,11 +1804,11 @@ kfopt(2) = "Perez and Fraga, 1987"
         kopt(7) = " Constants from Peng et al. (NBS scale); K1, K2 from Mehrbach et al. "  '2s PRECISION about 1.2% in K1 and 2.0% in K2. "
         kopt(8) = " Salinity = 0 (freshwater); K1, K2 from Millero, 1979 "   '2s PRECISION about 0.5% in K1 and 0.7% in K2. "
         kopt(9) = " K1, K2 from Cai and Wang, 1998"
-        kopt(10) = " K1, K2 from Lueker et al., 2000"
-        kopt(11) = " K1, K2 from Mojica Prieto et al., 2002"
-        kopt(12) = " K1, K2 from Millero et al., 2002"
-        kopt(13) = " K1, K2 from Millero et al., 2006"
-        kopt(14) = " K1, K2 from Millero, 2010"
+        kopt(10) = " K1, K2 from Lueker et al., 2000"
+        kopt(11) = " K1, K2 from Mojica Prieto et al., 2002"
+        kopt(12) = " K1, K2 from Millero et al., 2002"
+        kopt(13) = " K1, K2 from Millero et al., 2006"
+        kopt(14) = " K1, K2 from Millero, 2010"
        ' For 6) or 7), the pH scale is set to NBS. This can be changed later.
        'In each case the constants are converted to the chosen pH scale.
 '********************** END OF SET CONSTANTS **************************
@@ -1117,71 +1816,99 @@ kfopt(2) = "Perez and Fraga, 1987"
 tbopt(1) = "Uppstrom, 1974 "
 tbopt(2) = "Lee et al., 2010 "
 '********************** END TB  **************************
+'********************** Equation Of State of SeaWater *********************
+EOSopt(1) = "EOS-80 "
+EOSopt(2) = "TEOS-10 "
+'********************** END Equation Of State **************************
+
+Set SheetError = Sheets("ERROR")
 If SetDefaults Then
-            Sheets("INPUT").Select
-            'Range("A1").Select
-            For i = 1 To UBound(kopt)
-               If i <= UBound(khso4opt) Then Sheets("INPUT").Range("A1").Offset(i, 1).Value = khso4opt(i)
-               If i <= UBound(kfopt) Then Sheets("INPUT").Range("A1").Offset(i, 2).Value = kfopt(i)
-               If i <= UBound(phopt) Then Sheets("INPUT").Range("A1").Offset(i, 3).Value = phopt(i)
-               Sheets("INPUT").Range("A1").Offset(i, 0).Value = kopt(i)
-            Next i
-            With Sheets("INPUT").Range(Cells(2, 1).Address, Cells(1 + UBound(kopt), 1).Address)
-               .Interior.ColorIndex = xlNone
-               .HorizontalAlignment = xlLeft
-               .VerticalAlignment = xlCenter
-               .WrapText = True
-            End With
-            With Sheets("INPUT").Range(Cells(2, 2).Address, Cells(1 + UBound(khso4opt), 2).Address)
-               .Interior.ColorIndex = xlNone
-               .HorizontalAlignment = xlLeft
-               .VerticalAlignment = xlCenter
-               .WrapText = True
-            End With
-            With Sheets("INPUT").Range(Cells(2, 3).Address, Cells(1 + UBound(kfopt), 3).Address)
-               .Interior.ColorIndex = xlNone
-               .HorizontalAlignment = xlLeft
-               .VerticalAlignment = xlCenter
-               .WrapText = True
-            End With
-            With Sheets("INPUT").Range(Cells(2, 4).Address, Cells(1 + UBound(phopt), 4).Address)
-               .Interior.ColorIndex = xlNone
-               .HorizontalAlignment = xlLeft
-               .VerticalAlignment = xlCenter
-               .WrapText = True
-            End With
-            With Sheets("INPUT").Range(Cells(2, 5).Address, Cells(1 + UBound(tbopt), 5).Address)
-               .Interior.ColorIndex = xlNone
-               .HorizontalAlignment = xlLeft
-               .VerticalAlignment = xlCenter
-               .WrapText = True
-            End With
-            With Sheets("INPUT").Cells(1 + WhichKsDefault%, 1).Interior
-                    .ColorIndex = 36
-                    .Pattern = xlSolid
-                    .PatternColorIndex = xlAutomatic
-            End With
-            With Sheets("INPUT").Cells(1 + WhoseKSO4Default%, 2).Interior
-                    .ColorIndex = 36
-                    .Pattern = xlSolid
-                    .PatternColorIndex = xlAutomatic
-            End With
-            With Sheets("INPUT").Cells(1 + WhoseKFDefault%, 3).Interior
-                    .ColorIndex = 36
-                    .Pattern = xlSolid
-                    .PatternColorIndex = xlAutomatic
-            End With
-            With Sheets("INPUT").Cells(1 + pHScaleDefault%, 4).Interior
-                    .ColorIndex = 36
-                    .Pattern = xlSolid
-                    .PatternColorIndex = xlAutomatic
-            End With
-            With Sheets("INPUT").Cells(1 + WhichTBDefault%, 5).Interior
-                    .ColorIndex = 36
-                    .Pattern = xlSolid
-                    .PatternColorIndex = xlAutomatic
-            End With
- End If
+    Sheets("INPUT").Select
+    For i = 1 To UBound(kopt)
+       Sheets("INPUT").Range("A1").Offset(i, 0).Value = kopt(i)
+    Next i
+    For i = 1 To UBound(khso4opt)
+       Sheets("INPUT").Range("A1").Offset(i, 1).Value = khso4opt(i)
+    Next i
+    For i = 1 To UBound(kfopt)
+       Sheets("INPUT").Range("A1").Offset(i, 2).Value = kfopt(i)
+    Next i
+    For i = 1 To UBound(phopt)
+       Sheets("INPUT").Range("A1").Offset(i, 3).Value = phopt(i)
+    Next i
+    For i = 1 To UBound(tbopt)
+       Sheets("INPUT").Range("A1").Offset(i, 4).Value = tbopt(i)
+    Next i
+    For i = 1 To UBound(EOSopt)
+       Sheets("INPUT").Range("A1").Offset(i, 5).Value = EOSopt(i)
+    Next i
+    With Sheets("INPUT").Range(Cells(2, 1).Address, Cells(1 + UBound(kopt), 1).Address)
+       .Interior.ColorIndex = xlNone
+       .HorizontalAlignment = xlLeft
+       .VerticalAlignment = xlCenter
+       .WrapText = True
+    End With
+    With Sheets("INPUT").Range(Cells(2, 2).Address, Cells(1 + UBound(khso4opt), 2).Address)
+       .Interior.ColorIndex = xlNone
+       .HorizontalAlignment = xlLeft
+       .VerticalAlignment = xlCenter
+       .WrapText = True
+    End With
+    With Sheets("INPUT").Range(Cells(2, 3).Address, Cells(1 + UBound(kfopt), 3).Address)
+       .Interior.ColorIndex = xlNone
+       .HorizontalAlignment = xlLeft
+       .VerticalAlignment = xlCenter
+       .WrapText = True
+    End With
+    With Sheets("INPUT").Range(Cells(2, 4).Address, Cells(1 + UBound(phopt), 4).Address)
+       .Interior.ColorIndex = xlNone
+       .HorizontalAlignment = xlLeft
+       .VerticalAlignment = xlCenter
+       .WrapText = True
+    End With
+    With Sheets("INPUT").Range(Cells(2, 5).Address, Cells(1 + UBound(tbopt), 5).Address)
+       .Interior.ColorIndex = xlNone
+       .HorizontalAlignment = xlLeft
+       .VerticalAlignment = xlCenter
+       .WrapText = True
+    End With
+    With Sheets("INPUT").Range(Cells(2, 6).Address, Cells(1 + UBound(EOSopt), 6).Address)
+       .Interior.ColorIndex = xlNone
+       .HorizontalAlignment = xlLeft
+       .VerticalAlignment = xlCenter
+       .WrapText = True
+    End With
+    With Sheets("INPUT").Cells(1 + WhichKsDefault%, 1).Interior
+            .ColorIndex = 36
+            .Pattern = xlSolid
+            .PatternColorIndex = xlAutomatic
+    End With
+    With Sheets("INPUT").Cells(1 + WhoseKSO4Default%, 2).Interior
+            .ColorIndex = 36
+            .Pattern = xlSolid
+            .PatternColorIndex = xlAutomatic
+    End With
+    With Sheets("INPUT").Cells(1 + WhoseKFDefault%, 3).Interior
+            .ColorIndex = 36
+            .Pattern = xlSolid
+            .PatternColorIndex = xlAutomatic
+    End With
+    With Sheets("INPUT").Cells(1 + pHScaleDefault%, 4).Interior
+            .ColorIndex = 36
+            .Pattern = xlSolid
+            .PatternColorIndex = xlAutomatic
+    End With
+    With Sheets("INPUT").Cells(1 + WhichTBDefault%, 5).Interior
+            .ColorIndex = 36
+            .Pattern = xlSolid
+            .PatternColorIndex = xlAutomatic
+    End With
+    With Sheets("INPUT").Cells(1 + WhichEOSDefault%, 6).Interior
+            .ColorIndex = 36
+            .Pattern = xlSolid
+            .PatternColorIndex = xlAutomatic
+    End With
+End If
 '********************** END OF KHSO4**************************
 'Sheets("INPUT").phcombo.List = phopt
 'Sheets("INPUT").kcombo.List = kopt
@@ -1192,13 +1919,16 @@ If SetDefaults Then
 'Sheets("INPUT").khso4combo.ListIndex = (WhoseKSO4Default% - 1)
 
 '**************** INITIATES INFO SHEET ***********************
- Dim ms(14) As String
+ Dim ms(16) As String
  ms(1) = "About this Macro"
  ms(2) = "General Information ": ms(3) = "pH Scales": ms(4) = "fCO2, pCO2"
  ms(5) = "KSO4": ms(6) = "Freshwater Option"
  ms(7) = "GEOSECS Option ": ms(8) = "Peng Option ":  ms(9) = "Pressure Effects"
  ms(10) = "Calcium Carbonate Solubility (Omega Values) "
- ms(11) = "Alkalinity": ms(12) = "Revelle Factor": ms(13) = "Constants": ms(14) = "Macro Version History"
+ ms(11) = "Alkalinity": ms(12) = "Revelle Factor": ms(13) = "Constants"
+ ms(14) = "Error propagation"
+ ms(15) = "TEOS-10 vs EOS-80"
+ ms(16) = "Macro Version History"
 
 Sheets("INFO").Select
 'Sheets("INFO").Range("A1").Select
@@ -2081,14 +2811,14 @@ CalculateFugacityConstants:
 ' Otherwise, the Pres term in the exponent affects the results.
 '       Weiss, R. F., Marine Chemistry 2:203-215, 1974.
 '       Delta and B in cm3/mol
-        Delta = (57.7 - 0.118 * TempK)
-        B = -1636.75 + 12.0408 * TempK - 0.0327957 * TempK * TempK
-        B = B + 3.16528 * 0.00001 * TempK * TempK * TempK
+        delta = (57.7 - 0.118 * TempK)
+        b = -1636.75 + 12.0408 * TempK - 0.0327957 * TempK * TempK
+        b = b + 3.16528 * 0.00001 * TempK * TempK * TempK
 '
 '
 '       For a mixture of CO2 and air at 1 atm (at low CO2 concentrations):
         P1atm = 1.01325: ' in bar
-        FugFac = Exp((B + 2! * Delta) * P1atm / RT)
+        FugFac = Exp((b + 2! * delta) * P1atm / RT)
 '
 '
 '************************************************
@@ -2510,22 +3240,22 @@ PrintPartialsForCase1:
         If fORp$ = "f" Then
                 ''Print USING; "                           \    \   fCO2            \    \   fCO2 "; pHScale%; pHScale%
                 ''Print "    change per             ------  ------           ------  ------ "
-                ''Print USING; "     \ /                   " + AAA$; pHinp0; fCO2inp0 * 1000000!; pHout0; fCO2out0 * 1000000!
+                ''Print USING; "     \ /                   " + AAA$; pHinp0; fCO2inp0 * 1000000#; pHout0; fCO2out0 * 1000000#
         ElseIf fORp$ = "p" Then
                 ''Print USING; "                           \    \   pCO2            \    \   pCO2 "; pHScale%; pHScale%
                 ''Print "    change per             ------  ------           ------  ------ "
-                ''Print USING; "     \ /                   " + AAA$; pHinp0; pCO2inp0 * 1000000!; pHout0; pCO2out0 * 1000000!
+                ''Print USING; "     \ /                   " + AAA$; pHinp0; pCO2inp0 * 1000000#; pHout0; pCO2out0 * 1000000#
         End If
-        ''Print USING; "    1 umol/kg in TA        " + AAA$; dpHinpdTA / 1000000!; dfCO2inpdTA; dpHoutdTA / 1000000!; dfCO2outdTA
-        ''Print USING; "    1 umol/kg in TC        " + AAA$; dpHinpdTC / 1000000!; dfCO2inpdTC; dpHoutdTC / 1000000!; dfCO2outdTC
+        ''Print USING; "    1 umol/kg in TA        " + AAA$; dpHinpdTA / 1000000#; dfCO2inpdTA; dpHoutdTA / 1000000#; dfCO2outdTA
+        ''Print USING; "    1 umol/kg in TC        " + AAA$; dpHinpdTC / 1000000#; dfCO2inpdTC; dpHoutdTC / 1000000#; dfCO2outdTC
         If WhichKs% <> 8 Then
-                ''Print USING; "    1 in salinity          " + AAA$; dpHinpdSal; dfCO2inpdSal * 1000000!; dpHoutdSal; dfCO2outdSal * 1000000!
+                ''Print USING; "    1 in salinity          " + AAA$; dpHinpdSal; dfCO2inpdSal * 1000000#; dpHoutdSal; dfCO2outdSal * 1000000#
         End If
-        'Print USING; "    1 deg C in input T     #.####  ####.# "; dpHinpdTempCinp; dfCO2inpdTempCinp * 1000000!
-        'Print USING; "    100 dbar in input P    #.####  ####.# "; dpHinpdPdbarinp * 100!; dfCO2inpdPdbarinp * 1000000! * 100!
-        'Print USING; "    1% K0 at input T               ####.# "; dfCO2inppcdK0 * 1000000!
-        'Print USING; "    1% K1 at input T, P    #.####  ####.# "; dpHinppcdK1; dfCO2inppcdK1 * 1000000!
-        'Print USING; "    1% K2 at input T, P    #.####  ####.# "; dpHinppcdK2; dfCO2inppcdK2 * 1000000!
+        'Print USING; "    1 deg C in input T     #.####  ####.# "; dpHinpdTempCinp; dfCO2inpdTempCinp * 1000000#
+        'Print USING; "    100 dbar in input P    #.####  ####.# "; dpHinpdPdbarinp * 100!; dfCO2inpdPdbarinp * 1000000# * 100!
+        'Print USING; "    1% K0 at input T               ####.# "; dfCO2inppcdK0 * 1000000#
+        'Print USING; "    1% K1 at input T, P    #.####  ####.# "; dpHinppcdK1; dfCO2inppcdK1 * 1000000#
+        'Print USING; "    1% K2 at input T, P    #.####  ####.# "; dpHinppcdK2; dfCO2inppcdK2 * 1000000#
 Exit Sub
 '****************************************************************************
 GetConstantsforCase1Partials:
@@ -2692,22 +3422,22 @@ PrintPartialsForCase2:
         If fORp$ = "f" Then
                 'Print USING; "                             TC     fCO2            \    \   fCO2 "; pHScale%
                 'Print "    change per             ------  ------           ------  ------ "
-                'Print USING; "     \ /                   " + AAA$; TC0 * 1000000!; fCO2inp0 * 1000000!; pHout0; fCO2out0 * 1000000!
+                'Print USING; "     \ /                   " + AAA$; TC0 * 1000000#; fCO2inp0 * 1000000#; pHout0; fCO2out0 * 1000000#
         ElseIf fORp$ = "p" Then
                 'Print USING; "                             TC     pCO2            \    \   pCO2 "; pHScale%
                 'Print "    change per             ------  ------           ------  ------ "
-                'Print USING; "     \ /                   " + AAA$; TC0 * 1000000!; pCO2inp0 * 1000000!; pHout0; pCO2out0 * 1000000!
+                'Print USING; "     \ /                   " + AAA$; TC0 * 1000000#; pCO2inp0 * 1000000#; pHout0; pCO2out0 * 1000000#
         End If
-        'Print USING; "    1 umol/kg in TA        " + AAA$; dTCdTA; dfCO2inpdTA; dpHoutdTA / 1000000!; dfCO2outdTA
-        'Print USING; "    .001 in input pH       " + AAA$; dTCdpH * 1000000! / 1000!; dfCO2inpdpH * 1000000! / 1000!; dpHoutdpH / 1000!; dfCO2outdpH * 1000000! / 1000!
+        'Print USING; "    1 umol/kg in TA        " + AAA$; dTCdTA; dfCO2inpdTA; dpHoutdTA / 1000000#; dfCO2outdTA
+        'Print USING; "    .001 in input pH       " + AAA$; dTCdpH * 1000000# / 1000!; dfCO2inpdpH * 1000000# / 1000!; dpHoutdpH / 1000!; dfCO2outdpH * 1000000# / 1000!
         If WhichKs% <> 8 Then
-                'Print USING; "    1 in salinity          " + AAA$; dTCdSal * 1000000!; dfCO2inpdSal * 1000000!; dpHoutdSal; dfCO2outdSal * 1000000!
+                'Print USING; "    1 in salinity          " + AAA$; dTCdSal * 1000000#; dfCO2inpdSal * 1000000#; dpHoutdSal; dfCO2outdSal * 1000000#
         End If
-        'Print USING; "    1 deg C in input T     " + AAA$; dTCdTempCinp * 1000000!; dfCO2inpdTempCinp * 1000000!; dpHoutdTempCinp; dfCO2outdTempCinp * 1000000!
-        'Print USING; "    100 dbar in input P    " + AAA$; dTCdPdbarinp * 1000000! * 100!; dfCO2inpdPdbarinp * 1000000! * 100!; dpHoutdPdbarinp * 100!; dfCO2outdPdbarinp * 1000000! * 100!
-        'Print USING; "    1% K0 at input T               ####.# "; dfCO2inppcdK0 * 1000000!
-        'Print USING; "    1% K1 at input T, P    " + AAA$; dTCpcdK1 * 1000000!; dfCO2inppcdK1 * 1000000!; dpHoutpcdK1; dfCO2outpcdK1 * 1000000!
-        'Print USING; "    1% K2 at input T, P    " + AAA$; dTCpcdK2 * 1000000!; dfCO2inppcdK2 * 1000000!; dpHoutpcdK2; dfCO2outpcdK2 * 1000000!
+        'Print USING; "    1 deg C in input T     " + AAA$; dTCdTempCinp * 1000000#; dfCO2inpdTempCinp * 1000000#; dpHoutdTempCinp; dfCO2outdTempCinp * 1000000#
+        'Print USING; "    100 dbar in input P    " + AAA$; dTCdPdbarinp * 1000000# * 100!; dfCO2inpdPdbarinp * 1000000# * 100!; dpHoutdPdbarinp * 100!; dfCO2outdPdbarinp * 1000000# * 100!
+        'Print USING; "    1% K0 at input T               ####.# "; dfCO2inppcdK0 * 1000000#
+        'Print USING; "    1% K1 at input T, P    " + AAA$; dTCpcdK1 * 1000000#; dfCO2inppcdK1 * 1000000#; dpHoutpcdK1; dfCO2outpcdK1 * 1000000#
+        'Print USING; "    1% K2 at input T, P    " + AAA$; dTCpcdK2 * 1000000#; dfCO2inppcdK2 * 1000000#; dpHoutpcdK2; dfCO2outpcdK2 * 1000000#
 '
 '
         TC = TC0: ' to pass back the value that came in
@@ -2889,22 +3619,22 @@ PrintPartialsForCase4:
         If fORp$ = "f" Then
                 'Print USING; "                             TA     fCO2            \    \   fCO2 "; pHScale%
                 'Print "    change per             ------  ------           ------  ------ "
-                'Print USING; "     \ /                   " + AAA$; TA0 * 1000000!; fCO2inp0 * 1000000!; pHout0; fCO2out0 * 1000000!
+                'Print USING; "     \ /                   " + AAA$; TA0 * 1000000#; fCO2inp0 * 1000000#; pHout0; fCO2out0 * 1000000#
         ElseIf fORp$ = "p" Then
                 'Print USING; "                             TA     pCO2            \    \   pCO2 "; pHScale%
                 'Print "    change per             ------  ------           ------  ------ "
-                'Print USING; "     \ /                   " + AAA$; TA0 * 1000000!; pCO2inp0 * 1000000!; pHout0; pCO2out0 * 1000000!
+                'Print USING; "     \ /                   " + AAA$; TA0 * 1000000#; pCO2inp0 * 1000000#; pHout0; pCO2out0 * 1000000#
         End If
-        'Print USING; "    1 umol/kg in TC        " + AAA$; dTAdTC; dfCO2inpdTC; dpHoutdTC / 1000000!; dfCO2outdTC
-        'Print USING; "    .001 in input pH       " + AAA$; dTAdpH * 1000000! / 1000!; dfCO2inpdpH * 1000000! / 1000!; dpHoutdpH / 1000!; dfCO2outdpH * 1000000! / 1000!
+        'Print USING; "    1 umol/kg in TC        " + AAA$; dTAdTC; dfCO2inpdTC; dpHoutdTC / 1000000#; dfCO2outdTC
+        'Print USING; "    .001 in input pH       " + AAA$; dTAdpH * 1000000# / 1000!; dfCO2inpdpH * 1000000# / 1000!; dpHoutdpH / 1000!; dfCO2outdpH * 1000000# / 1000!
         If WhichKs% <> 8 Then
-                'Print USING; "    1 in salinity          " + AAA$; dTAdSal * 1000000!; dfCO2inpdSal * 1000000!; dpHoutdSal; dfCO2outdSal * 1000000!
+                'Print USING; "    1 in salinity          " + AAA$; dTAdSal * 1000000#; dfCO2inpdSal * 1000000#; dpHoutdSal; dfCO2outdSal * 1000000#
         End If
-        'Print USING; "    1 deg C in input T     " + AAA$; dTAdTempCinp * 1000000!; dfCO2inpdTempCinp * 1000000!; dpHoutdTempCinp; dfCO2outdTempCinp * 1000000!
-        'Print USING; "    100 dbar in input P    " + AAA$; dTAdPdbarinp * 1000000! * 100!; dfCO2inpdPdbarinp * 1000000! * 100!; dpHoutdPdbarinp * 100!; dfCO2outdPdbarinp * 1000000! * 100!
-        'Print USING; "    1% K0 at input T               ####.# "; dfCO2inppcdK0 * 1000000!
-        'Print USING; "    1% K1 at input T, P    " + AAA$; dTApcdK1 * 1000000!; dfCO2inppcdK1 * 1000000!; dpHoutpcdK1; dfCO2outpcdK1 * 1000000!
-        'Print USING; "    1% K2 at input T, P    " + AAA$; dTApcdK2 * 1000000!; dfCO2inppcdK2 * 1000000!; dpHoutpcdK2; dfCO2outpcdK2 * 1000000!
+        'Print USING; "    1 deg C in input T     " + AAA$; dTAdTempCinp * 1000000#; dfCO2inpdTempCinp * 1000000#; dpHoutdTempCinp; dfCO2outdTempCinp * 1000000#
+        'Print USING; "    100 dbar in input P    " + AAA$; dTAdPdbarinp * 1000000# * 100!; dfCO2inpdPdbarinp * 1000000# * 100!; dpHoutdPdbarinp * 100!; dfCO2outdPdbarinp * 1000000# * 100!
+        'Print USING; "    1% K0 at input T               ####.# "; dfCO2inppcdK0 * 1000000#
+        'Print USING; "    1% K1 at input T, P    " + AAA$; dTApcdK1 * 1000000#; dfCO2inppcdK1 * 1000000#; dpHoutpcdK1; dfCO2outpcdK1 * 1000000#
+        'Print USING; "    1% K2 at input T, P    " + AAA$; dTApcdK2 * 1000000#; dfCO2inppcdK2 * 1000000#; dpHoutpcdK2; dfCO2outpcdK2 * 1000000#
 '
 '
         TA = TA0: ' to pass back the value that came in
@@ -3080,24 +3810,24 @@ PrintPartialsForCase5:
         If fORp$ = "f" Then
                 'Print USING; "                             TA    \    \           \    \   fCO2 "; pHScale%; pHScale%
                 'Print "    change per             ------  ------           ------  ------ "
-                'Print USING; "     \ /                   " + AAA$; TA0 * 1000000!; pHinp0; pHout0; fCO2out0 * 1000000!
-                'Print USING; "    1 umol/kg in TC        " + AAA$; dTAdTC; dpHinpdTC / 1000000!; dpHoutdTC / 1000000!; dfCO2outdTC
-                'Print USING; "    1 uatm in input fCO2   " + AAA$; dTAdfCO2; dpHinpdfCO2 / 1000000!; dpHoutdfCO2 / 1000000!; dfCO2outdfCO2
+                'Print USING; "     \ /                   " + AAA$; TA0 * 1000000#; pHinp0; pHout0; fCO2out0 * 1000000#
+                'Print USING; "    1 umol/kg in TC        " + AAA$; dTAdTC; dpHinpdTC / 1000000#; dpHoutdTC / 1000000#; dfCO2outdTC
+                'Print USING; "    1 uatm in input fCO2   " + AAA$; dTAdfCO2; dpHinpdfCO2 / 1000000#; dpHoutdfCO2 / 1000000#; dfCO2outdfCO2
         ElseIf fORp$ = "p" Then
                 'Print USING; "                             TA    \    \           \    \   pCO2 "; pHScale%; pHScale%
                 'Print "    change per             ------  ------           ------  ------ "
-                'Print USING; "     \ /                   " + AAA$; TA0 * 1000000!; pHinp0; pHout0; pCO2out0 * 1000000!
-                'Print USING; "    1 umol/kg in TC        " + AAA$; dTAdTC; dpHinpdTC / 1000000!; dpHoutdTC / 1000000!; dpCO2outdTC
-                'Print USING; "    1 uatm in input pCO2   " + AAA$; dTAdpCO2; dpHinpdpCO2 / 1000000!; dpHoutdpCO2 / 1000000!; dpCO2outdpCO2
+                'Print USING; "     \ /                   " + AAA$; TA0 * 1000000#; pHinp0; pHout0; pCO2out0 * 1000000#
+                'Print USING; "    1 umol/kg in TC        " + AAA$; dTAdTC; dpHinpdTC / 1000000#; dpHoutdTC / 1000000#; dpCO2outdTC
+                'Print USING; "    1 uatm in input pCO2   " + AAA$; dTAdpCO2; dpHinpdpCO2 / 1000000#; dpHoutdpCO2 / 1000000#; dpCO2outdpCO2
         End If
         If WhichKs% <> 8 Then
-                'Print USING; "    1 in salinity          " + AAA$; dTAdSal * 1000000!; dpHinpdSal; dpHoutdSal; dfCO2outdSal * 1000000!
+                'Print USING; "    1 in salinity          " + AAA$; dTAdSal * 1000000#; dpHinpdSal; dpHoutdSal; dfCO2outdSal * 1000000#
         End If
-        'Print USING; "    1 deg C in input T     " + AAA$; dTAdTempCinp * 1000000!; dpHinpdTempCinp; dpHoutdTempCinp; dfCO2outdTempCinp * 1000000!
-        'Print USING; "    100 dbar in input P    " + AAA$; dTAdPdbarinp * 1000000! * 100!; dpHinpdPdbarinp * 100!; dpHoutdPdbarinp * 100!; dfCO2outdPdbarinp * 1000000! * 100!
-        'Print USING; "    1% K0 at input T, P    " + AAA$; dTApcdK0 * 1000000!; dpHinppcdK0; dpHoutpcdK0; dfCO2outpcdK0 * 1000000!
-        'Print USING; "    1% K1 at input T, P    " + AAA$; dTApcdK1 * 1000000!; dpHinppcdK1; dpHoutpcdK1; dfCO2outpcdK1 * 1000000!
-        'Print USING; "    1% K2 at input T, P    " + AAA$; dTApcdK2 * 1000000!; dpHinppcdK2; dpHoutpcdK2; dfCO2outpcdK2 * 1000000!
+        'Print USING; "    1 deg C in input T     " + AAA$; dTAdTempCinp * 1000000#; dpHinpdTempCinp; dpHoutdTempCinp; dfCO2outdTempCinp * 1000000#
+        'Print USING; "    100 dbar in input P    " + AAA$; dTAdPdbarinp * 1000000# * 100!; dpHinpdPdbarinp * 100!; dpHoutdPdbarinp * 100!; dfCO2outdPdbarinp * 1000000# * 100!
+        'Print USING; "    1% K0 at input T, P    " + AAA$; dTApcdK0 * 1000000#; dpHinppcdK0; dpHoutpcdK0; dfCO2outpcdK0 * 1000000#
+        'Print USING; "    1% K1 at input T, P    " + AAA$; dTApcdK1 * 1000000#; dpHinppcdK1; dpHoutpcdK1; dfCO2outpcdK1 * 1000000#
+        'Print USING; "    1% K2 at input T, P    " + AAA$; dTApcdK2 * 1000000#; dpHinppcdK2; dpHoutpcdK2; dfCO2outpcdK2 * 1000000#
 '
 '
         TA = TA0: ' to pass back the value that came in
@@ -3277,24 +4007,24 @@ PrintPartialsForCase6:
         If fORp$ = "f" Then
                 'Print USING; "                             TA      TC             \    \   fCO2 "; pHScale%
                 'Print "    change per             ------  ------           ------  ------ "
-                'Print USING; "     \ /                   " + AAA$; TA0 * 1000000!; TC0 * 1000000!; pHout0; fCO2out0 * 1000000!
-                'Print USING; "    .001 in input pH       " + AAA$; dTAdpH * 1000000! / 1000!; dTCdpH * 1000000! / 1000!; dpHoutdpH / 1000!; dfCO2outdpH * 1000000! / 1000!
-                'Print USING; "    1 uatm in input fCO2   " + AAA$; dTAdfCO2; dTCdfCO2; dpHoutdfCO2 / 1000000!; dfCO2outdfCO2
+                'Print USING; "     \ /                   " + AAA$; TA0 * 1000000#; TC0 * 1000000#; pHout0; fCO2out0 * 1000000#
+                'Print USING; "    .001 in input pH       " + AAA$; dTAdpH * 1000000# / 1000!; dTCdpH * 1000000# / 1000!; dpHoutdpH / 1000!; dfCO2outdpH * 1000000# / 1000!
+                'Print USING; "    1 uatm in input fCO2   " + AAA$; dTAdfCO2; dTCdfCO2; dpHoutdfCO2 / 1000000#; dfCO2outdfCO2
         ElseIf fORp$ = "p" Then
                 'Print USING; "                             TA      TC             \    \   pCO2 "; pHScale%
                 'Print "    change per             ------  ------           ------  ------ "
-                'Print USING; "     \ /                   " + AAA$; TA0 * 1000000!; TC0 * 1000000!; pHout0; pCO2out0 * 1000000!
-                'Print USING; "    .001 in input pH       " + AAA$; dTAdpH * 1000000! / 1000!; dTCdpH * 1000000! / 1000!; dpHoutdpH / 1000!; dpCO2outdpH * 1000000! / 1000!
-                'Print USING; "    1 uatm in input pCO2   " + AAA$; dTAdpCO2; dTCdpCO2; dpHoutdpCO2 / 1000000!; dpCO2outdpCO2
+                'Print USING; "     \ /                   " + AAA$; TA0 * 1000000#; TC0 * 1000000#; pHout0; pCO2out0 * 1000000#
+                'Print USING; "    .001 in input pH       " + AAA$; dTAdpH * 1000000# / 1000!; dTCdpH * 1000000# / 1000!; dpHoutdpH / 1000!; dpCO2outdpH * 1000000# / 1000!
+                'Print USING; "    1 uatm in input pCO2   " + AAA$; dTAdpCO2; dTCdpCO2; dpHoutdpCO2 / 1000000#; dpCO2outdpCO2
         End If
         If WhichKs% <> 8 Then
-                'Print USING; "    1 in salinity          " + AAA$; dTAdSal * 1000000!; dTCdSal * 1000000!; dpHoutdSal; dfCO2outdSal * 1000000!
+                'Print USING; "    1 in salinity          " + AAA$; dTAdSal * 1000000#; dTCdSal * 1000000#; dpHoutdSal; dfCO2outdSal * 1000000#
         End If
-        'Print USING; "    1 deg C in input T     " + AAA$; dTAdTempCinp * 1000000!; dTCdTempCinp * 1000000!; dpHoutdTempCinp; dfCO2outdTempCinp * 1000000!
-        'Print USING; "    100 dbar in input P    " + AAA$; dTAdPdbarinp * 1000000! * 100!; dTCdPdbarinp * 1000000! * 100!; dpHoutdPdbarinp * 100!; dfCO2outdPdbarinp * 1000000! * 100!
-        'Print USING; "    1% K0 at input T       " + AAA$; dTApcdK0 * 1000000!; dTCpcdK0 * 1000000!; dpHoutpcdK0; dfCO2outpcdK0 * 1000000!
-        'Print USING; "    1% K1 at input T, P    " + AAA$; dTApcdK1 * 1000000!; dTCpcdK1 * 1000000!; dpHoutpcdK1; dfCO2outpcdK1 * 1000000!
-        'Print USING; "    1% K2 at input T, P    " + AAA$; dTApcdK2 * 1000000!; dTCpcdK2 * 1000000!; dpHoutpcdK2; dfCO2outpcdK2 * 1000000!
+        'Print USING; "    1 deg C in input T     " + AAA$; dTAdTempCinp * 1000000#; dTCdTempCinp * 1000000#; dpHoutdTempCinp; dfCO2outdTempCinp * 1000000#
+        'Print USING; "    100 dbar in input P    " + AAA$; dTAdPdbarinp * 1000000# * 100!; dTCdPdbarinp * 1000000# * 100!; dpHoutdPdbarinp * 100!; dfCO2outdPdbarinp * 1000000# * 100!
+        'Print USING; "    1% K0 at input T       " + AAA$; dTApcdK0 * 1000000#; dTCpcdK0 * 1000000#; dpHoutpcdK0; dfCO2outpcdK0 * 1000000#
+        'Print USING; "    1% K1 at input T, P    " + AAA$; dTApcdK1 * 1000000#; dTCpcdK1 * 1000000#; dpHoutpcdK1; dfCO2outpcdK1 * 1000000#
+        'Print USING; "    1% K2 at input T, P    " + AAA$; dTApcdK2 * 1000000#; dTCpcdK2 * 1000000#; dpHoutpcdK2; dfCO2outpcdK2 * 1000000#
 '
 '
         TA = TA0: TC = TC0: ' to pass back the values that came in
@@ -3311,13 +4041,10 @@ CalculateStuffForCase6Partials:
 Return
 End Sub
 
-Sub CaSolubility(WhichKs%, Sal, TempC, Pdbar, TC, pH, K1, K2, OmegaCa, OmegaAr)
-' SUB CaSolubility, version 01.05, 05-23-97, written by Ernie Lewis.
-' Inputs: WhichKs%, Sal, TempC, Pdbar, TC, pH, K1, K2
-' Outputs: OmegaCa, OmegaAr
-' This calculates omega, the solubility ratio, for calcite and aragonite.
-' This is defined by: Omega = [CO3--]*[Ca++] / Ksp,
-'       where Ksp is the solubility product (either KCa or KAr).
+Sub SolubilityProduct(WhichKs%, Sal, TempC, Pdbar, KCa, KAr)
+' Inputs: WhichKs%, Sal, TempC, Pdbar
+' Outputs: KCa, KAr
+' This calculates the solubility products, for calcite and aragonite.
 '
 '
 '****************************************************************************
@@ -3353,12 +4080,6 @@ Sub CaSolubility(WhichKs%, Sal, TempC, Pdbar, TC, pH, K1, K2, OmegaCa, OmegaAr)
 '
 '
 '****************************************************************************
-CalculateCa:
-'       Riley, J. P. and Tongudai, M., Chemical Geology 2:263-269, 1967:
-        Ca = 0.02128 / 40.087 * (Sal / 1.80655): ' in mol/kg-SW
-'       this is .010285 * Sal / 35
-'
-'
 CalciteSolubility:
 '       Mucci, Alphonso, Amer. J. of Science 283:781-799, 1983.
         logKCa = -171.9065 - 0.077993 * TempK + 2839.319 / TempK
@@ -3401,14 +4122,6 @@ PressureCorrectionForAragonite:
 '
 '****************************************************************************
 If WhichKs% = 6 Or WhichKs% = 7 Then
-CalculateCaforGEOSECS:
-'       Culkin, F, in Chemical Oceanography, ed. Riley and Skirrow, 1965:
-'       (quoted in Takahashi et al, GEOSECS Pacific Expedition v. 3, 1982)
-        Ca = 0.01026 * Sal / 35!
-'       Culkin gives Ca = (.0213 / 40.078) * (Sal / 1.80655) in mol/kg-SW
-'       which corresponds to Ca = .01030 * Sal / 35.
-'
-'
 CalculateKCaforGEOSECS:
 '       Ingle et al, Marine Chemistry 1:295-307, 1973 is referenced in
 '       (quoted in Takahashi et al, GEOSECS Pacific Expedition v. 3, 1982
@@ -3433,6 +4146,52 @@ CalculatePressureEffectsOnKCaKArGEOSECS:
 '       I can't find them anywhere else.
         KCa = KCa * Exp((36! - 0.2 * TempC) * Pbar / RT)
         KAr = KAr * Exp((33.3 - 0.22 * TempC) * Pbar / RT)
+End If
+
+        ' Added by JM Epitalon
+        ' For computing derivative with respect to KCa or KAr, one has to perturb the value of one K
+        ' Requested perturbation is passed through global variables PertK and Perturb
+        If Len(PertK) <> 0 Then
+            Select Case PertK
+                Case "KSPA"    ' solubility Product for Aragonite
+                    KAr = KAr + Perturb
+                Case "KSPC"   ' for Calcite
+                    KCa = KCa + Perturb
+            End Select
+        End If
+'
+'
+'****************************************************************************
+
+End Sub
+
+Sub CaSolubility(WhichKs%, Sal, TempC, Pdbar, TC, pH, K1, K2, OmegaCa, OmegaAr)
+' SUB CaSolubility, version 01.05, 05-23-97, written by Ernie Lewis.
+' Inputs: WhichKs%, Sal, TempC, Pdbar, TC, pH, K1, K2
+' Outputs: OmegaCa, OmegaAr
+' This calculates omega, the solubility ratio, for calcite and aragonite.
+' This is defined by: Omega = [CO3--]*[Ca++] / Ksp,
+'       where Ksp is the solubility product (either KCa or KAr).
+'
+
+    Dim KCa, KAr
+    Call SolubilityProduct(WhichKs%, Sal, TempC, Pdbar, KCa, KAr)
+    
+'****************************************************************************
+CalculateCa:
+'       Riley, J. P. and Tongudai, M., Chemical Geology 2:263-269, 1967:
+        Ca = 0.02128 / 40.087 * (Sal / 1.80655): ' in mol/kg-SW
+'       this is .010285 * Sal / 35
+'
+'
+'****************************************************************************
+If WhichKs% = 6 Or WhichKs% = 7 Then
+CalculateCaforGEOSECS:
+'       Culkin, F, in Chemical Oceanography, ed. Riley and Skirrow, 1965:
+'       (quoted in Takahashi et al, GEOSECS Pacific Expedition v. 3, 1982)
+        Ca = 0.01026 * Sal / 35!
+'       Culkin gives Ca = (.0213 / 40.078) * (Sal / 1.80655) in mol/kg-SW
+'       which corresponds to Ca = .01030 * Sal / 35.
 End If
 '
 '
@@ -3607,3 +4366,4 @@ GetfCO2:
         Call CalculatefCO2fromTCpH(TC, pH, K0, K1, K2, fCO2)
 Return
 End Sub
+

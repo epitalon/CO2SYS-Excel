@@ -11,21 +11,29 @@ Private Sub Worksheet_SelectionChange(ByVal Target As Range)
 Dim r1 As Range
 
 If InStr(Target.Worksheet.Name, "DATA") < 0 Then Exit Sub
-If (Target.Address <> "$A$1:$L$1" And Target.Address <> "$M$3" And Target.Address <> "$M$5:$M$7") Then Exit Sub
+If (Target.Address <> "$A$1:$N$1" And Target.Address <> "$O$3" And Target.Address <> "$O$5:$O$7") Then Exit Sub
 
-LastRow = Sheets("DATA").Range("A1").EntireColumn.Rows.Count
-
-If Target.Address = "$A$1:$L$1" Then
+If Target.Address = "$A$1:$N$1" Then
    Call main
-ElseIf Target.Address = "$M$3" Then
+ElseIf Target.Address = "$O$3" Then
    answer = MsgBox("Are you sure you want to clear the data ?", vbYesNo + vbQuestion + vbDefaultButton2, "Caution")
-   Set r1 = Sheets("DATA").Range(Cells(4, "A"), Cells(LastRow, "L"))
+   Set r1 = Range(Cells(4, "A"), Cells(65356, "N"))
    If answer = vbYes Then r1.ClearContents
 Else
    answer = MsgBox("Are you sure you want to clear the results ?", vbYesNo + vbQuestion + vbDefaultButton2, "Caution")
-   Set r1 = Sheets("DATA").Range(Cells(4, "Q"), Cells(LastRow, "BD"))
-   If answer = vbYes Then r1.ClearContents
+   nrows = Sheets("DATA").UsedRange.Rows.Count
+   Set r1 = Range(Cells(4, "S"), Cells(nrows, "BH"))
+   nrows = Sheets("ERROR").UsedRange.Rows.Count
+   Set r2 = Sheets("ERROR").Range(Sheets("ERROR").Cells(4, "N"), Sheets("ERROR").Cells(nrows, "AM"))
+   If answer = vbYes Then
+      r1.ClearContents
+      ' Setting/clearing format by program makes the total number of row impssible to decrease !
+      ' r1.ClearFormats
+      r2.ClearContents
+   End If
 End If
 
 
 End Sub
+
+
