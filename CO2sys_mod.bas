@@ -59,8 +59,8 @@ Public InitiateOK As Boolean
 Public PertK As String         ' Id of perturbed K for computing derivatives
 Public Perturb  As Double      ' perturbation
 
-Declare Function gsw_t_from_ct Lib "gsw.dll" (ByVal SA As Double, ByVal CT As Double, ByVal P As Double) As Double
-Declare Function gsw_sp_from_sa Lib "gsw.dll" (ByVal SA As Double, ByVal P As Double, ByVal lon As Double, ByVal lat As Double) As Double
+Declare PtrSafe Function gsw_t_from_ct Lib "gsw.dll" (ByVal SA As Double, ByVal CT As Double, ByVal P As Double) As Double
+Declare PtrSafe Function gsw_sp_from_sa Lib "gsw.dll" (ByVal SA As Double, ByVal P As Double, ByVal lon As Double, ByVal lat As Double) As Double
 
 '****************************************************************************
 '****************************************************************************
