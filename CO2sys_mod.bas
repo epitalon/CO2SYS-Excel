@@ -59,8 +59,8 @@ Public InitiateOK As Boolean
 Public PertK As String         ' Id of perturbed K for computing derivatives
 Public Perturb  As Double      ' perturbation
 
-Declare Function gsw_t_from_ct Lib "gsw.dll" (ByVal SA As Double, ByVal CT As Double, ByVal p As Double) As Double
-Declare Function gsw_sp_from_sa Lib "gsw.dll" (ByVal SA As Double, ByVal p As Double, ByVal lon As Double, ByVal lat As Double) As Double
+Declare PtrSafe Function gsw_t_from_ct Lib "gsw.dll" (ByVal SA As Double, ByVal CT As Double, ByVal P As Double) As Double
+Declare PtrSafe Function gsw_sp_from_sa Lib "gsw.dll" (ByVal SA As Double, ByVal P As Double, ByVal lon As Double, ByVal lat As Double) As Double
 
 '****************************************************************************
 '****************************************************************************
@@ -114,7 +114,7 @@ Sub main()
           If Sheets("INPUT").Cells(i, 5).Interior.ColorIndex = 36 Then WhichTB% = i - 1
        Next i
        For i = 2 To UBound(EOSopt) + 1
-          If Sheets("INPUT").Cells(i, 5).Interior.ColorIndex = 36 Then WhichEOS% = i - 1
+          If Sheets("INPUT").Cells(i, 6).Interior.ColorIndex = 36 Then WhichEOS% = i - 1
        Next i
     
      ' Copy options in sheet DATA
@@ -331,6 +331,27 @@ Sub ReaderrorLine(pt, eVar1 As Double, eVar2 As Double, eSal As Double, eTemp As
     
 End Sub
 
+Sub convertTEOS_to_EOS(CT As Double, SA As Double, P As Double, lon As Double, lat As Double, T As Double, SP As Double)
+' Inputs:
+'  - CT       :  Conservative Temperature (degree C)
+'  - SA       :  Absolute Salinity
+'  - P        :  Pressure (decibar)
+'  - lon      :  longitude (degree east)
+'  - lat      :  latitude  (degree north)
+' Outputs:
+'  - T        :  Temperature in situ (degree C)
+'  - SP       :  Practical Salinity (psu)
+'
+' This converts from TEOS-10 standards to EOS-80
+    T = gsw_t_from_ct(SA, CT, P)
+    SP = gsw_sp_from_sa(SA, P, lon, lat)
+    ' If given data point location is not in ocean
+    If (SP = 9E+15) Then
+        ' Take default: mid equatorial Atlantic
+        SP = gsw_sp_from_sa(SA, P, -25, 0)
+    End If
+End Sub
+
 Sub Calculate(inoutconditions() As Double, data() As Double, SkipAData, results() As Double, formats() As String)
 ' Inputs:
 '  - inoutconditions  :  temp, sal, pressure, In and Out, total phosphorus and Silicium and, if TEOS-10, data point location
@@ -343,6 +364,8 @@ Sub Calculate(inoutconditions() As Double, data() As Double, SkipAData, results(
 '
 ' This makes all computations for one input row
 
+    Dim Sal As Double, TempC As Double, Pdbar As Double
+    Dim lon As Double, lat As Double
     Sal = inoutconditions(1): TempC = inoutconditions(2): Pdbar = inoutconditions(3)
     T(4) = inoutconditions(4): T(5) = inoutconditions(5)
     lon = inoutconditions(8): lat = inoutconditions(9)
@@ -353,13 +376,7 @@ Sub Calculate(inoutconditions() As Double, data() As Double, SkipAData, results(
         ' Convert them to Practical Salinity and in-situ temperature
         Dim SP As Double              ' Practical Salinity
         Dim isTemp As Double          ' insitu temperature
-        isTemp = gsw_t_from_ct(Sal, TempC, Pdbar)
-        SP = gsw_sp_from_sa(Sal, Pdbar, lon, lat)
-        ' If given data point location is not in ocean
-        If (SP = 9E+15) Then
-            ' Take default: mid equatorial Atlantic
-            SP = gsw_sp_from_sa(Sal, Pdbar, -25, 0)
-        End If
+        Call convertTEOS_to_EOS(TempC, Sal, Pdbar, lon, lat, isTemp, SP)
         TempC = isTemp
         Sal = SP
     End If
@@ -515,6 +532,7 @@ CalculateOtherStuffAtInputConditions:
 '****************************************************************************
 CalculatepHfCO2AtOutputConditions:
     TempC = inoutconditions(6): Pdbar = inoutconditions(7)
+    Sal = inoutconditions(1)
     
     ' If output conditions are not defined
     If TempC = -9 Or TempC = -999 Or Pdbar = -9 Or Pdbar = -999 Then
@@ -526,11 +544,13 @@ CalculatepHfCO2AtOutputConditions:
         GoTo endcalculate
     End If
     
-    ' if input temp and salinity are conforming to EOS-10
+    ' if output temp and salinity are conforming to EOS-10
     If (WhichEOS% = 2) Then
-        ' Given TempC is Conservative temperature
-        ' Convert it to in-situ temperature
-        TempC = gsw_t_from_ct(Sal, TempC, Pdbar)
+        ' Given Sal and TempC are Absolute Salinity and Conservative temperature
+        ' Convert them to Practical Salinity and in-situ temperature
+        Call convertTEOS_to_EOS(TempC, Sal, Pdbar, lon, lat, isTemp, SP)
+        TempC = isTemp
+        Sal = SP
     End If
     
     Call Constants(pHScale%, WhichKs%, WhoseKSO4%, WhoseKF%, Sal, TempC, Pdbar, K0, K(), T(), fH, FugFac, VPFac)
@@ -997,8 +1017,24 @@ Sub CalculateErrors(SkipAData, eVar1 As Double, eVar2 As Double, eSal As Double,
         Next i
     End If
 
-    ' Calculate dissociation constants at input conditions
+    ' Take input conditions
+    Dim Sal As Double, TempC As Double, Pdbar As Double
     Sal = VarInp(1): TempC = VarInp(2): Pdbar = VarInp(3)
+    ' if input temp and salinity are conforming to EOS-10
+    If (WhichEOS% = 2) Then
+        Dim lon As Double, lat As Double
+        lon = VarInp(8): lat = VarInp(9)
+
+        ' Given Sal and TempC are Absolute Salinity and Conservative temperature
+        ' Convert them to Practical Salinity and in-situ temperature
+        Dim SP As Double              ' Practical Salinity
+        Dim isTemp As Double          ' insitu temperature
+        Call convertTEOS_to_EOS(TempC, Sal, Pdbar, lon, lat, isTemp, SP)
+        TempC = isTemp
+        Sal = SP
+    End If
+        
+    ' Calculate dissociation constants at input conditions
     Dim K_inp(10), K0_inp
     Call Constants(pHScale%, WhichKs%, WhoseKSO4%, WhoseKF%, Sal, TempC, Pdbar, K0_inp, K_inp(), T(), fH, FugFac, VPFac)
     
@@ -1064,13 +1100,13 @@ AboutMacro:
         mess(1) = mess(1) + "The code for this Macro was taken directly from Ernie Lewis' ""CO2SYS.BAS"" Basic Program.  "
         mess(1) = mess(1) + "(See the ""INFO"" sheet in the macro for contact information)." + Chr$(LF)
         mess(1) = mess(1) + Chr$(LF)
-        mess(1) = mess(1) + "What it Does…" + Chr$(LF)
+        mess(1) = mess(1) + "What it Does:" + Chr$(LF)
         mess(1) = mess(1) + Chr$(LF)
         mess(1) = mess(1) + "     From two known CO2 parameters (TA, TCO2, pH, pCO2 or fCO2), the program will calculate the other 3,"
-        mess(1) = mess(1) + "as well as other quantities such as Omega, Revelle Factor, Carbonate species concentrations…(referred to as ""Auxiliary Data"" in the macro)."
+        mess(1) = mess(1) + "as well as other quantities such as Omega, Revelle Factor, Carbonate species concentrations (referred to as ""Auxiliary Data"" in the macro)."
         mess(1) = mess(1) + "The quantities can be calculated at 2 different sets of T and P conditions (IN and OUT)" + Chr$(LF)
         mess(1) = mess(1) + Chr$(LF)
-        mess(1) = mess(1) + "What it Doesn't do…" + Chr$(LF)
+        mess(1) = mess(1) + "What it Doesn't do:" + Chr$(LF)
         mess(1) = mess(1) + Chr$(LF)
         mess(1) = mess(1) + "     Unlike CO2Sys.BAS, this macro does not calculate the sensitivity of the output on the input"
         mess(1) = mess(1) + "(referred to as ""Partials"" in the original program)." + Chr$(LF)
@@ -1101,9 +1137,9 @@ AboutMacro:
         mess(1) = mess(1) + "by clicking on the appropriate button located on top of the column ""M"" in this sheet." + Chr$(LF)
         mess(1) = mess(1) + Chr$(LF)
         mess(1) = mess(1) + "   After the program starts:" + Chr$(LF)
-        mess(1) = mess(1) + "      --  You will be asked if you entered your data properly…this gives you a chance to cancel your action." + Chr$(LF)
+        mess(1) = mess(1) + "      --  You will be asked if you entered your data properly. This gives you a chance to cancel your action." + Chr$(LF)
         mess(1) = mess(1) + "      --  You will be asked if you want to calculate the ""Auxiliary Data"". This corresponds to Omega, "
-        mess(1) = mess(1) + "Revelle Factor…etc…any column right of the pCO2 column in both the ""Input Conditions"" "
+        mess(1) = mess(1) + "Revelle Factor, etc, any column right of the pCO2 column in both the ""Input Conditions"" "
         mess(1) = mess(1) + "and the ""Output Conditions"" sections. Choosing ""No"" will save time." + Chr$(LF)
         mess(1) = mess(1) + "      --  Results at the ""Input Conditions"" are posted in columns ""Q"" to ""AK"" "
         mess(1) = mess(1) + "and are labeled ""in"". Those at the ""Output Conditions"" are posted in columns ""AM"" to ""BB"" "
@@ -1732,7 +1768,7 @@ AboutMacroHistory1:
         mess(16) = mess(16) + "                 of alternatively negative and positive delta pHs." + Chr$(LF)
         mess(16) = mess(16) + "      . Bug fix: Corrected handling of -999 in data. would skip line at first encountered -999 in CO2 parameter." + Chr$(LF)
         mess(16) = mess(16) + "                 Would also not handle -999 in output conditions. (11/18/2016)" + Chr$(LF)
-        mess(16) = mess(16) + "      . Bug fix: Corrected coloring of problematic line in red and expanded "results" range to clear to include flag in last column. (11/18/2016)" + Chr$(LF)
+        mess(16) = mess(16) + "      . Bug fix: Corrected coloring of problematic line in red and expanded ""results"" range to clear to include flag in last column. (11/18/2016)" + Chr$(LF)
         mess(16) = mess(16) + Chr$(LF)
         mess(16) = mess(16) + "Version 2.4 (9 June 2016): CO2sys_v2.4.xls" + Chr$(LF) + Chr$(LF)
         mess(16) = mess(16) + "      . Added error propagation in a new sheet titled ""ERROR""" + Chr$(LF)
@@ -4210,7 +4246,6 @@ Sub FindpHfCO2fromTATC(pHScale%, WhichKs%, WhoseKSO4%, WhoseKF%, TA, TC, Sal, K(
 ' This calculates pH, fCO2, and pCO2 from TA and TC at output conditions.
 '
 '
-        Call Constants(pHScale%, WhichKs%, WhoseKSO4%, WhoseKF%, Sal, TempC, Pdbar, K0, K(), T(), fH, FugFac, VPFac)
         K1 = K(1): K2 = K(2)
 '
         If WhichKs% = 7 Then TA = TA - T(4): ' PAlk(Peng) = PAlk(Dickson) + TP
@@ -4366,4 +4401,6 @@ GetfCO2:
         Call CalculatefCO2fromTCpH(TC, pH, K0, K1, K2, fCO2)
 Return
 End Sub
+
+
 
